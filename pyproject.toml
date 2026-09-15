@@ -1,0 +1,15 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [".assignment", ".venv", "backend/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.coverage.run]
+source = ["backend"]
+omit = ["*/migrations/*", "*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+

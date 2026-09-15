@@ -1,0 +1,4 @@
+-r requirements.txt
+coverage>=7.10,<8
+ruff>=0.12,<1
+

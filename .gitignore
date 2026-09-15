@@ -1,0 +1,15 @@
+.venv/
+.assignment/
+.env
+__pycache__/
+*.py[cod]
+*.sqlite3
+.coverage
+htmlcov/
+.ruff_cache/
+staticfiles/
+media/
+emails/
+.pytest_cache/
+test-results.txt
+
