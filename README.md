@@ -115,6 +115,8 @@ docker compose down
 
 ## Проверка проекта
 
+Итоги выполненных проверок: [docs/VERIFICATION.md](docs/VERIFICATION.md).
+
 После установки `requirements-dev.txt` выполните:
 
 ```powershell

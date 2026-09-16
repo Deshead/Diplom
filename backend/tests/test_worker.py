@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from celery import Celery
 from celery.contrib.testing.worker import start_worker
 from django.core import mail
@@ -15,6 +17,13 @@ from backend.tasks import send_email
     CELERY_RESULT_BACKEND="cache+memory://",
 )
 class WorkerTests(TransactionTestCase):
+    @patch.dict(
+        "os.environ",
+        {
+            "CELERY_BROKER_URL": "memory://",
+            "CELERY_RESULT_BACKEND": "cache+memory://",
+        },
+    )
     def test_worker_executes_import_export_and_email_from_queue(self):
         """Настоящий worker читает задачи из очереди в памяти, без внешнего Redis."""
         supplier = User.objects.create_user("worker@example.com", type="shop", is_active=True)
