@@ -1,0 +1,297 @@
+# Запускайте запросы по одному в HTTP-клиенте IDE.
+# Поля и формы совместимы с примерами из исходной Postman-коллекции.
+# Перед защищенными запросами скопируйте Token из соответствующего ответа login.
+# ID предложений, строк корзины, заказа, контакта и задач берите из ответов API.
+
+@base = http://127.0.0.1:8000/api/v1
+@buyer_token = paste_buyer_token_here
+@supplier_token = paste_supplier1_token_here
+@admin_token = paste_admin_token_here
+@confirmation_token = paste_email_confirmation_token_here
+@reset_token = paste_password_reset_token_here
+@offer1 = 1
+@offer2 = 15
+@line1 = 1
+@line2 = 2
+@basket_id = 1
+@contact_id = 1
+@job_id = 1
+
+### 1. Регистрация нового покупателя: письмо появится в терминале или Mailpit
+POST {{base}}/user/register
+Content-Type: application/x-www-form-urlencoded
+
+first_name=Иван&last_name=Петров&email=ivan@example.com&password=Study-order-2026!&company=Магазин&position=Менеджер
+
+### 1а. Необязательно: повторить письмо, если оно не пришло или токен просрочен
+# Старый confirmation_token станет недействителен: скопируйте новый токен из письма.
+# HTTP 200 с общим message не раскрывает, существует ли такой аккаунт.
+POST {{base}}/user/register/resend
+Content-Type: application/json
+
+{"email": "ivan@example.com"}
+
+### 2. Подтверждение регистрации: подставьте токен из письма
+POST {{base}}/user/register/confirm
+Content-Type: application/x-www-form-urlencoded
+
+email=ivan@example.com&token={{confirmation_token}}
+
+### 3. Вход новым покупателем; Token можно использовать в следующих запросах
+POST {{base}}/user/login
+Content-Type: application/x-www-form-urlencoded
+
+email=ivan@example.com&password=Study-order-2026!
+
+### 4. Либо вход учебным покупателем после manage.py seed_demo
+POST {{base}}/user/login
+Content-Type: application/x-www-form-urlencoded
+
+email=buyer@example.com&password=Demo-Orders-2026!
+
+### 5. Профиль покупателя
+GET {{base}}/user/details
+Authorization: Token {{buyer_token}}
+
+### 6. Редактирование профиля
+POST {{base}}/user/details
+Authorization: Token {{buyer_token}}
+Content-Type: application/json
+
+{"first_name": "Иван", "last_name": "Петров", "company": "Розничный магазин", "position": "Менеджер"}
+
+### 7. Список категорий
+GET {{base}}/categories
+
+### 8. Магазины, принимающие заказы
+GET {{base}}/shops
+
+### 9. Предложения; выберите по одному из двух магазинов для offer1 и offer2
+GET {{base}}/products
+
+### 10. Фильтрация и поиск
+GET {{base}}/products?shop_id=1&category_id=224&search=iphone
+
+### 11. Подробности предложения
+GET {{base}}/products/{{offer1}}
+
+### 12. Добавить предложения двух магазинов (items — JSON-строка поля формы)
+POST {{base}}/basket
+Authorization: Token {{buyer_token}}
+Content-Type: multipart/form-data; boundary=BasketBoundary
+
+--BasketBoundary
+Content-Disposition: form-data; name="items"
+
+[{"product_info": {{offer1}}, "quantity": 1}, {"product_info": {{offer2}}, "quantity": 1}]
+--BasketBoundary--
+
+### 13. Прочитать корзину; сохранить id корзины и ID ordered_items
+GET {{base}}/basket
+Authorization: Token {{buyer_token}}
+
+### 14. Установить количество строки корзины
+PUT {{base}}/basket
+Authorization: Token {{buyer_token}}
+Content-Type: application/json
+
+{"items": [{"id": {{line1}}, "quantity": 2}]}
+
+### 15. Удалить вторую строку: items поддерживает ID через запятую
+DELETE {{base}}/basket
+Authorization: Token {{buyer_token}}
+Content-Type: application/x-www-form-urlencoded
+
+items={{line2}}
+
+### 16. Вернуть товар второго магазина в корзину
+POST {{base}}/basket
+Authorization: Token {{buyer_token}}
+Content-Type: application/json
+
+{"items": [{"product_info": {{offer2}}, "quantity": 1}]}
+
+### 17. Создать адрес доставки; сохранить возвращенный ID
+POST {{base}}/user/contact
+Authorization: Token {{buyer_token}}
+Content-Type: application/json
+
+{
+  "first_name": "Иван",
+  "last_name": "Петров",
+  "middle_name": "Сергеевич",
+  "email": "ivan@example.com",
+  "phone": "+79991234567",
+  "city": "Новосибирск",
+  "street": "Советская",
+  "house": "10",
+  "structure": "1",
+  "building": "",
+  "apartment": "25"
+}
+
+### 18. Список своих адресов
+GET {{base}}/user/contact
+Authorization: Token {{buyer_token}}
+
+### 19. Изменить адрес (ID строкой, как в Postman)
+PUT {{base}}/user/contact
+Authorization: Token {{buyer_token}}
+Content-Type: application/x-www-form-urlencoded
+
+id={{contact_id}}&apartment=26
+
+### 20. Проверить корзину и ее сумму перед подтверждением
+GET {{base}}/basket
+Authorization: Token {{buyer_token}}
+
+### 21. Оформить заказ: письмо покупателю и накладная администратору
+POST {{base}}/order
+Authorization: Token {{buyer_token}}
+Content-Type: application/x-www-form-urlencoded
+
+id={{basket_id}}&contact={{contact_id}}
+
+### 22. История своих заказов
+GET {{base}}/order
+Authorization: Token {{buyer_token}}
+
+### 23. Детали созданного заказа (ID прежней корзины)
+GET {{base}}/order/{{basket_id}}
+Authorization: Token {{buyer_token}}
+
+### 24. Вход первым поставщиком после seed_demo
+POST {{base}}/user/login
+Content-Type: application/x-www-form-urlencoded
+
+email=supplier1@example.com&password=Demo-Orders-2026!
+
+### 25. Заказы поставщика: только его позиции
+GET {{base}}/partner/orders
+Authorization: Token {{supplier_token}}
+
+### 26. Текущее состояние магазина
+GET {{base}}/partner/state
+Authorization: Token {{supplier_token}}
+
+### 27. Выключить прием заказов; затем проверьте /products
+POST {{base}}/partner/state
+Authorization: Token {{supplier_token}}
+Content-Type: application/x-www-form-urlencoded
+
+state=off
+
+### 28. Снова включить прием заказов
+POST {{base}}/partner/state
+Authorization: Token {{supplier_token}}
+Content-Type: application/x-www-form-urlencoded
+
+state=on
+
+### 29. Импорт прайса по публичной ссылке; HTTP 202 и job_id
+POST {{base}}/partner/update
+Authorization: Token {{supplier_token}}
+Content-Type: application/x-www-form-urlencoded
+
+url=https://raw.githubusercontent.com/netology-code/python-final-diplom/master/data/shop1.yaml
+
+### 30. Альтернатива: импорт локального файла через multipart/form-data
+POST {{base}}/partner/update
+Authorization: Token {{supplier_token}}
+Content-Type: multipart/form-data; boundary=CatalogBoundary
+
+--CatalogBoundary
+Content-Disposition: form-data; name="file"; filename="shop1.yaml"
+Content-Type: application/yaml
+
+< ./data/shop1.yaml
+--CatalogBoundary--
+
+### 31. Статус импорта/экспорта; job_id возьмите из стартового запроса
+GET {{base}}/partner/jobs/{{job_id}}
+Authorization: Token {{supplier_token}}
+
+### 32. Начать экспорт; затем повторить запрос статуса с новым job_id
+GET {{base}}/partner/export
+Authorization: Token {{supplier_token}}
+
+### 33. Вход администратором после seed_demo
+POST {{base}}/user/login
+Content-Type: application/x-www-form-urlencoded
+
+email=admin@example.com&password=Demo-Orders-2026!
+
+### 34. Все оформленные заказы
+GET {{base}}/admin/orders
+Authorization: Token {{admin_token}}
+
+### 35. Подтвердить заказ; покупатель получит уведомление
+PATCH {{base}}/admin/orders/{{basket_id}}/status
+Authorization: Token {{admin_token}}
+Content-Type: application/json
+
+{"state": "confirmed"}
+
+### 36. Отметить сборку
+PATCH {{base}}/admin/orders/{{basket_id}}/status
+Authorization: Token {{admin_token}}
+Content-Type: application/json
+
+{"state": "assembled"}
+
+### 37. Отметить отправку
+PATCH {{base}}/admin/orders/{{basket_id}}/status
+Authorization: Token {{admin_token}}
+Content-Type: application/json
+
+{"state": "sent"}
+
+### 38. Отметить доставку
+PATCH {{base}}/admin/orders/{{basket_id}}/status
+Authorization: Token {{admin_token}}
+Content-Type: application/json
+
+{"state": "delivered"}
+
+### 39. Удалить адрес из книги: снимок в оформленном заказе сохраняется
+DELETE {{base}}/user/contact
+Authorization: Token {{buyer_token}}
+Content-Type: application/x-www-form-urlencoded
+
+items={{contact_id}}
+
+### 40. Проверка ошибки: повторное оформление уже оформленного заказа
+POST {{base}}/order
+Authorization: Token {{buyer_token}}
+Content-Type: application/json
+
+{"id": {{basket_id}}, "contact": {{contact_id}}}
+
+### 41. Проверка ошибки: нулевое количество
+POST {{base}}/basket
+Authorization: Token {{buyer_token}}
+Content-Type: application/json
+
+{"items": [{"product_info": {{offer1}}, "quantity": 0}]}
+
+### 42. Запрос восстановления пароля нового пользователя из шага 1
+POST {{base}}/user/password_reset
+Content-Type: application/x-www-form-urlencoded
+
+email=ivan@example.com
+
+### 43. Подтверждение восстановления; reset_token берется из письма
+POST {{base}}/user/password_reset/confirm
+Content-Type: application/x-www-form-urlencoded
+
+email=ivan@example.com&token={{reset_token}}&password=Another-study-2026!
+
+### 44. Проверка входа новым паролем
+POST {{base}}/user/login
+Content-Type: application/x-www-form-urlencoded
+
+email=ivan@example.com&password=Another-study-2026!
+
+### 45. Выход (после смены пароля подставьте новый токен)
+POST {{base}}/user/logout
+Authorization: Token {{buyer_token}}
