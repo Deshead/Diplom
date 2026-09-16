@@ -7,8 +7,12 @@ from django.db import models
 from django.db.models import Q
 
 STATE_CHOICES = [
-    ("basket", "Корзина"), ("new", "Новый"), ("confirmed", "Подтвержден"),
-    ("assembled", "Собран"), ("sent", "Отправлен"), ("delivered", "Доставлен"),
+    ("basket", "Корзина"),
+    ("new", "Новый"),
+    ("confirmed", "Подтвержден"),
+    ("assembled", "Собран"),
+    ("sent", "Отправлен"),
+    ("delivered", "Доставлен"),
     ("canceled", "Отменен"),
 ]
 
@@ -39,12 +43,17 @@ class User(AbstractUser):
     company = models.CharField("Компания", max_length=100, blank=True)
     position = models.CharField("Должность", max_length=100, blank=True)
     phone = models.CharField("Телефон", max_length=20, blank=True)
-    type = models.CharField(max_length=5, choices=[("buyer", "Покупатель"), ("shop", "Поставщик")],
-                            default="buyer")
+    type = models.CharField(
+        max_length=5, choices=[("buyer", "Покупатель"), ("shop", "Поставщик")], default="buyer"
+    )
     is_active = models.BooleanField(default=False)
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
     objects = UserManager()
+
+    def save(self, *args, **kwargs):
+        self.email = self.email.lower()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.email
@@ -81,6 +90,7 @@ class Product(models.Model):
 
 
 class ProductInfo(models.Model):
+    # Сам товар общий, а цена и остаток у каждого магазина свои.
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="product_infos")
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="product_infos")
     external_id = models.PositiveBigIntegerField()
@@ -93,8 +103,9 @@ class ProductInfo(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["shop", "external_id"], name="unique_shop_offer"),
-            models.CheckConstraint(condition=Q(price__gte=0) & Q(price_rrc__gte=0),
-                                   name="nonnegative_prices"),
+            models.CheckConstraint(
+                condition=Q(price__gte=0) & Q(price_rrc__gte=0), name="nonnegative_prices"
+            ),
         ]
 
     def __str__(self):
@@ -109,14 +120,18 @@ class Parameter(models.Model):
 
 
 class ProductParameter(models.Model):
-    product_info = models.ForeignKey(ProductInfo, on_delete=models.CASCADE,
-                                     related_name="product_parameters")
+    product_info = models.ForeignKey(
+        ProductInfo, on_delete=models.CASCADE, related_name="product_parameters"
+    )
     parameter = models.ForeignKey(Parameter, on_delete=models.PROTECT)
     value = models.CharField(max_length=255)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["product_info", "parameter"],
-                                               name="unique_product_parameter")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product_info", "parameter"], name="unique_product_parameter"
+            )
+        ]
 
 
 class Contact(models.Model):
@@ -127,7 +142,7 @@ class Contact(models.Model):
     email = models.EmailField(blank=True)
     city = models.CharField(max_length=100)
     street = models.CharField(max_length=150)
-    house = models.CharField(max_length=20)
+    house = models.CharField(max_length=20, blank=True)
     structure = models.CharField(max_length=20, blank=True)
     building = models.CharField(max_length=20, blank=True)
     apartment = models.CharField(max_length=20, blank=True)
@@ -150,8 +165,11 @@ class Order(models.Model):
 
     class Meta:
         ordering = ["-dt"]
-        constraints = [models.UniqueConstraint(fields=["user"], condition=Q(state="basket"),
-                                               name="one_basket_per_user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"], condition=Q(state="basket"), name="one_basket_per_user"
+            )
+        ]
 
     @property
     def total_sum(self):
@@ -163,10 +181,12 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="ordered_items")
-    product_info = models.ForeignKey(ProductInfo, on_delete=models.PROTECT,
-                                     related_name="ordered_items")
+    product_info = models.ForeignKey(
+        ProductInfo, on_delete=models.PROTECT, related_name="ordered_items"
+    )
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Это названия на момент покупки. Магазин потом может хоть переименоваться.
     product_name = models.CharField(max_length=255, blank=True)
     shop_name = models.CharField(max_length=100, blank=True)
 
@@ -182,23 +202,27 @@ class OrderItem(models.Model):
 
 
 def generate_token():
+    # Код из даты рождения тут явно был бы плохой идеей.
     return secrets.token_hex(32)
 
 
 class EmailToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="email_tokens")
     key = models.CharField(max_length=64, unique=True, default=generate_token)
-    purpose = models.CharField(max_length=10, choices=[("register", "Регистрация"),
-                                                     ("reset", "Сброс пароля")])
+    purpose = models.CharField(
+        max_length=10, choices=[("register", "Регистрация"), ("reset", "Сброс пароля")]
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
 
 class CatalogJob(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="catalog_jobs")
     kind = models.CharField(max_length=10, choices=[("import", "Импорт"), ("export", "Экспорт")])
-    status = models.CharField(max_length=10, default="pending",
-                             choices=[("pending", "Ожидает"), ("done", "Готово"), ("error", "Ошибка")])
+    status = models.CharField(
+        max_length=10,
+        default="pending",
+        choices=[("pending", "Ожидает"), ("done", "Готово"), ("error", "Ошибка")],
+    )
     result = models.JSONField(default=dict, blank=True)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-

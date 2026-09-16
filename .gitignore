@@ -1,5 +1,6 @@
 .venv/
 .assignment/
+.local/
 .env
 __pycache__/
 *.py[cod]
@@ -12,4 +13,3 @@ media/
 emails/
 .pytest_cache/
 test-results.txt
-

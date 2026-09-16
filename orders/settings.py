@@ -6,10 +6,10 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-DEBUG = os.getenv("DEBUG", "true").lower() == "true"
+DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
 SECRET_KEY = os.getenv("SECRET_KEY", "local-development-only-change-before-deploying")
 if not DEBUG and SECRET_KEY == "local-development-only-change-before-deploying":
-    raise ValueError("Укажите SECRET_KEY в .env при DEBUG=false")
+    raise ValueError("Укажите SECRET_KEY в .env при DJANGO_DEBUG=false")
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(",")
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -32,33 +32,41 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 ROOT_URLCONF = "orders.urls"
-TEMPLATES = [{
-    "BACKEND": "django.template.backends.django.DjangoTemplates",
-    "DIRS": [],
-    "APP_DIRS": True,
-    "OPTIONS": {"context_processors": [
-        "django.template.context_processors.request",
-        "django.contrib.auth.context_processors.auth",
-        "django.contrib.messages.context_processors.messages",
-    ]},
-}]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ]
+        },
+    }
+]
 WSGI_APPLICATION = "orders.wsgi.application"
 ASGI_APPLICATION = "orders.asgi.application"
 if os.getenv("POSTGRES_HOST"):
-    DATABASES = {"default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "orders"),
-        "USER": os.getenv("POSTGRES_USER", "orders"),
-        "PASSWORD": os.environ["POSTGRES_PASSWORD"],
-        "HOST": os.environ["POSTGRES_HOST"],
-        "PORT": os.getenv("POSTGRES_PORT", "5432"),
-    }}
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DB", "orders"),
+            "USER": os.getenv("POSTGRES_USER", "orders"),
+            "PASSWORD": os.environ["POSTGRES_PASSWORD"],
+            "HOST": os.environ["POSTGRES_HOST"],
+            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        }
+    }
 else:
-    DATABASES = {"default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-        "OPTIONS": {"timeout": 20},
-    }}
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.getenv("SQLITE_NAME", str(BASE_DIR / "db.sqlite3")),
+            "OPTIONS": {"timeout": 20},
+        }
+    }
 AUTH_USER_MODEL = "backend.User"
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -89,6 +97,7 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "false").lower() == "true"
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "false").lower() == "true"
 EMAIL_TIMEOUT = 15
+EMAIL_FILE_PATH = os.getenv("EMAIL_FILE_PATH", str(BASE_DIR / "emails"))
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "orders@example.com")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
@@ -102,4 +111,3 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CATALOG_MAX_BYTES = 2 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = CATALOG_MAX_BYTES
-
