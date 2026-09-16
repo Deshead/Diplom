@@ -4,8 +4,9 @@ from rest_framework.exceptions import ValidationError
 
 
 def validate_phone(value):
-    # Скобки и пробелы оставляем: человеку так удобнее читать номер.
+    # Номер можно записать с пробелами, скобками и дефисами.
     digits = re.sub(r"\D", "", value)
-    if not re.fullmatch(r"[+\d() -]+", value) or not 7 <= len(digits) <= 15:
+    allowed_characters = re.fullmatch(r"[+\d() -]+", value)
+    if not allowed_characters or len(digits) < 7 or len(digits) > 15:
         raise ValidationError("Укажите телефон из 7–15 цифр.")
     return value

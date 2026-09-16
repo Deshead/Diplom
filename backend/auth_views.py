@@ -33,16 +33,19 @@ class RegistrationSerializer(serializers.ModelSerializer):
         extra_kwargs = {"first_name": {"required": True}, "last_name": {"required": True}}
 
     def validate_email(self, value):
-        # Для нас Иван@почта и иван@почта — один и тот же адрес.
+        # Регистр букв в email не учитываем.
         value = value.lower()
         if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("Этот email уже зарегистрирован")
         return value
 
     def validate(self, attrs):
-        check_password(
-            attrs["password"], User(**{k: v for k, v in attrs.items() if k != "password"})
+        user = User(
+            email=attrs["email"],
+            first_name=attrs["first_name"],
+            last_name=attrs["last_name"],
         )
+        check_password(attrs["password"], user)
         return attrs
 
 
@@ -69,7 +72,9 @@ class AccountSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone(self, value):
-        return validate_phone(value) if value else value
+        if value:
+            validate_phone(value)
+        return value
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
@@ -77,7 +82,7 @@ class AccountSerializer(serializers.ModelSerializer):
             setattr(instance, field, value)
         if password is not None:
             instance.set_password(password)
-            # Пароль поменяли — старый ключ для входа больше не подходит.
+            # После смены пароля нужно войти заново.
             Token.objects.filter(user=instance).delete()
         instance.save()
         return instance
@@ -97,7 +102,7 @@ def send_confirmation(user):
         "Отправьте email и token на POST /api/v1/user/register/confirm.\n"
         "Токен действует 24 часа."
     )
-    # Почта иногда падает. Аккаунт уже создан, а письмо можно запросить еще раз.
+    # Отправляем письмо после сохранения пользователя.
     transaction.on_commit(
         lambda: send_email.delay("Подтверждение регистрации", body, [user.email]), robust=True
     )
@@ -126,20 +131,18 @@ class ConfirmAccount(PublicAuthView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         with transaction.atomic():
-            token = (
-                EmailToken.objects.select_for_update()
-                .filter(
-                    key=data["token"],
-                    purpose="register",
-                    user__email__iexact=data["email"],
-                    created_at__gte=timezone.now() - timedelta(hours=24),
-                )
-                .first()
+            valid_from = timezone.now() - timedelta(hours=24)
+            tokens = EmailToken.objects.select_for_update().filter(
+                key=data["token"],
+                purpose="register",
+                user__email__iexact=data["email"],
+                created_at__gte=valid_from,
             )
+            token = tokens.first()
             if not token:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
             User.objects.filter(pk=token.user_id).update(is_active=True)
-            # Использованный код убираем, второй раз подтверждать тут уже нечего.
+            # Код можно использовать только один раз.
             token.delete()
         return Response({"Status": True})
 
@@ -153,10 +156,11 @@ class LoginAccount(PublicAuthView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         user = authenticate(
             request,
-            email=serializer.validated_data["email"].lower(),
-            password=serializer.validated_data["password"],
+            email=data["email"].lower(),
+            password=data["password"],
         )
         if user is None:
             return Response(
@@ -176,7 +180,8 @@ class AccountDetails(APIView):
         serializer.save()
         return Response({"Status": True, "user": serializer.data})
 
-    patch = post
+    def patch(self, request):
+        return self.post(request)
 
 
 class LogoutAccount(APIView):
@@ -193,18 +198,15 @@ class ResendConfirmation(PublicAuthView):
     def post(self, request):
         serializer = ResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
         with transaction.atomic():
-            user = (
-                User.objects.select_for_update()
-                .filter(
-                    email__iexact=serializer.validated_data["email"],
-                    is_active=False,
-                )
-                .first()
-            )
-            # Заблокированный администратором аккаунт через эту форму не оживляем.
-            if user and user.email_tokens.filter(purpose="register").exists():
-                send_confirmation(user)
+            users = User.objects.select_for_update().filter(email__iexact=email, is_active=False)
+            user = users.first()
+            if user:
+                # Письмо повторяем только для неподтвержденной регистрации.
+                registration_pending = user.email_tokens.filter(purpose="register").exists()
+                if registration_pending:
+                    send_confirmation(user)
         return Response({"Status": True, "message": "Запрос принят. Проверьте email"})
 
 
@@ -212,17 +214,12 @@ class PasswordReset(PublicAuthView):
     def post(self, request):
         serializer = ResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
         with transaction.atomic():
-            user = (
-                User.objects.select_for_update()
-                .filter(
-                    email__iexact=serializer.validated_data["email"],
-                    is_active=True,
-                )
-                .first()
-            )
+            users = User.objects.select_for_update().filter(email__iexact=email, is_active=True)
+            user = users.first()
             if user:
-                # Если письмо запросили дважды, работает только самый свежий код.
+                # Старый код сброса больше не нужен.
                 EmailToken.objects.filter(user=user, purpose="reset").delete()
                 token = EmailToken.objects.create(user=user, purpose="reset")
                 body = (
@@ -233,7 +230,7 @@ class PasswordReset(PublicAuthView):
                 transaction.on_commit(
                     lambda: send_email.delay("Сброс пароля", body, [user.email]), robust=True
                 )
-        # Один ответ для любого адреса: список зарегистрированных клиентов остается закрытым.
+        # Не сообщаем, зарегистрирован ли этот email.
         return Response({"Status": True, "message": "Если аккаунт существует, письмо отправлено"})
 
 
@@ -249,19 +246,20 @@ class PasswordResetConfirm(PublicAuthView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         with transaction.atomic():
-            token = (
-                EmailToken.objects.select_for_update()
-                .filter(
-                    key=data["token"],
-                    purpose="reset",
-                    user__is_active=True,
-                    created_at__gte=timezone.now() - timedelta(hours=1),
-                )
-                .first()
+            valid_from = timezone.now() - timedelta(hours=1)
+            tokens = EmailToken.objects.select_for_update().filter(
+                key=data["token"],
+                purpose="reset",
+                user__is_active=True,
+                created_at__gte=valid_from,
             )
-            if not token or (data.get("email") and data["email"].lower() != token.user.email):
+            token = tokens.first()
+            if not token:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
             user = token.user
+            email = data.get("email")
+            if email and email.lower() != user.email:
+                raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
             check_password(data["password"], user)
             user.set_password(data["password"])
             user.save(update_fields=["password"])

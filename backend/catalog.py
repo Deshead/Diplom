@@ -19,7 +19,7 @@ class CatalogError(ValueError):
     pass
 
 
-def _text(value, field, max_length, allow_empty=False):
+def validate_text(value, field, max_length, allow_empty=False):
     if not isinstance(value, str) or (not allow_empty and not value.strip()):
         raise CatalogError(f"{field}: нужна непустая строка")
     value = value.strip()
@@ -28,13 +28,13 @@ def _text(value, field, max_length, allow_empty=False):
     return value
 
 
-def _integer(value, field, minimum=1, maximum=9223372036854775807):
+def validate_integer(value, field, minimum=1, maximum=9223372036854775807):
     if type(value) is not int or not minimum <= value <= maximum:
         raise CatalogError(f"{field}: нужно целое число от {minimum} до {maximum}")
     return value
 
 
-def _price(value, field):
+def validate_price(value, field):
     if isinstance(value, bool):
         raise CatalogError(f"{field}: неверная цена")
     try:
@@ -51,8 +51,65 @@ def _price(value, field):
     return result
 
 
+def validate_categories(categories):
+    category_map = {}
+    for category in categories:
+        if not isinstance(category, dict):
+            raise CatalogError("Каждая категория должна быть словарем")
+        category_id = validate_integer(category.get("id"), "category.id")
+        if category_id in category_map:
+            raise CatalogError(f"Повторяется категория {category_id}")
+        category_map[category_id] = validate_text(category.get("name"), "category.name", 100)
+    return category_map
+
+
+def validate_parameters(parameters, external_id):
+    if not isinstance(parameters, dict):
+        raise CatalogError(f"У товара {external_id} parameters должен быть словарем")
+    clean_parameters = {}
+    for name, value in parameters.items():
+        name = validate_text(name, "parameter.name", 100)
+        if not isinstance(value, (str, int, float, bool)):
+            raise CatalogError(f"Характеристика {name}: нужно строковое или числовое значение")
+        clean_parameters[name] = validate_text(str(value), "parameter.value", 255, allow_empty=True)
+    return clean_parameters
+
+
+def validate_goods(goods, category_map):
+    clean_goods = []
+    external_ids = set()
+    for item in goods:
+        if not isinstance(item, dict):
+            raise CatalogError("Каждый товар должен быть словарем")
+        external_id = validate_integer(item.get("id"), "goods.id")
+        if external_id in external_ids:
+            raise CatalogError(f"Повторяется товар {external_id}")
+        external_ids.add(external_id)
+        category_id = validate_integer(item.get("category"), "goods.category")
+        if category_id not in category_map:
+            raise CatalogError(f"У товара {external_id} неизвестная категория {category_id}")
+        parameters = validate_parameters(item.get("parameters", {}), external_id)
+        good = {
+            "external_id": external_id,
+            "category_id": category_id,
+            "name": validate_text(item.get("name"), "goods.name", 255),
+            "description": validate_text(
+                item.get("description", ""), "goods.description", 10000, allow_empty=True
+            ),
+            "model": validate_text(item.get("model", ""), "goods.model", 100, allow_empty=True),
+            "quantity": validate_integer(
+                item.get("quantity"), "goods.quantity", minimum=0, maximum=2147483647
+            ),
+            "price": validate_price(item.get("price"), "goods.price"),
+            "price_rrc": validate_price(item.get("price_rrc"), "goods.price_rrc"),
+            "parameters": parameters,
+        }
+        clean_goods.append(good)
+    return clean_goods
+
+
 def read_catalog(content):
-    """Сначала проверяем весь файл, чтобы ошибка не оставила половину прайса."""
+    """Проверяем весь прайс до записи в базу."""
     if isinstance(content, bytes):
         if len(content) > settings.CATALOG_MAX_BYTES:
             raise CatalogError("Файл слишком большой")
@@ -68,7 +125,8 @@ def read_catalog(content):
         raise CatalogError("Не удалось прочитать YAML") from None
     if not isinstance(data, dict):
         raise CatalogError("В корне YAML должен быть словарь")
-    shop_name = _text(data.get("shop"), "shop", 100)
+
+    shop_name = validate_text(data.get("shop"), "shop", 100)
     categories = data.get("categories")
     goods = data.get("goods")
     if not isinstance(categories, list) or not isinstance(goods, list):
@@ -76,55 +134,9 @@ def read_catalog(content):
     if len(categories) > 10000 or len(goods) > 10000:
         raise CatalogError("В прайсе должно быть не больше 10000 категорий и товаров")
 
-    category_map = {}
-    for category in categories:
-        if not isinstance(category, dict):
-            raise CatalogError("Каждая категория должна быть словарем")
-        category_id = _integer(category.get("id"), "category.id")
-        if category_id in category_map:
-            raise CatalogError(f"Повторяется категория {category_id}")
-        category_map[category_id] = _text(category.get("name"), "category.name", 100)
-
-    result = []
-    external_ids = set()
-    for item in goods:
-        if not isinstance(item, dict):
-            raise CatalogError("Каждый товар должен быть словарем")
-        external_id = _integer(item.get("id"), "goods.id")
-        if external_id in external_ids:
-            raise CatalogError(f"Повторяется товар {external_id}")
-        external_ids.add(external_id)
-        category_id = _integer(item.get("category"), "goods.category")
-        if category_id not in category_map:
-            raise CatalogError(f"У товара {external_id} неизвестная категория {category_id}")
-        parameters = item.get("parameters", {})
-        # У телефона память, у телевизора диагональ. Отдельные колонки не нужны.
-        if not isinstance(parameters, dict):
-            raise CatalogError(f"У товара {external_id} parameters должен быть словарем")
-        clean_parameters = {}
-        for name, value in parameters.items():
-            name = _text(name, "parameter.name", 100)
-            if not isinstance(value, (str, int, float, bool)):
-                raise CatalogError(f"Характеристика {name}: нужно строковое или числовое значение")
-            clean_parameters[name] = _text(str(value), "parameter.value", 255, allow_empty=True)
-        result.append(
-            {
-                "external_id": external_id,
-                "category_id": category_id,
-                "name": _text(item.get("name"), "goods.name", 255),
-                "description": _text(
-                    item.get("description", ""), "goods.description", 10000, allow_empty=True
-                ),
-                "model": _text(item.get("model", ""), "goods.model", 100, allow_empty=True),
-                "quantity": _integer(
-                    item.get("quantity"), "goods.quantity", minimum=0, maximum=2147483647
-                ),
-                "price": _price(item.get("price"), "goods.price"),
-                "price_rrc": _price(item.get("price_rrc"), "goods.price_rrc"),
-                "parameters": clean_parameters,
-            }
-        )
-    return {"shop": shop_name, "categories": category_map, "goods": result}
+    category_map = validate_categories(categories)
+    clean_goods = validate_goods(goods, category_map)
+    return {"shop": shop_name, "categories": category_map, "goods": clean_goods}
 
 
 def import_catalog(content, user, url=""):
@@ -134,7 +146,7 @@ def import_catalog(content, user, url=""):
         raise CatalogError("Адрес прайса должен быть не длиннее 200 символов")
     data = read_catalog(content)
     with transaction.atomic():
-        # Параллельные импорты одного поставщика выполняются по очереди.
+        # Два прайса одного поставщика загружаем по очереди.
         User.objects.select_for_update().get(pk=user.pk)
         for category in Category.objects.filter(pk__in=data["categories"]):
             if category.name != data["categories"][category.pk]:
@@ -152,18 +164,18 @@ def import_catalog(content, user, url=""):
             categories.append(category)
         shop.categories.set(categories)
 
-        # Такой же порядок блокировок используется при оформлении заказа.
+        # Блокируем по id, как при оформлении заказа.
         list(shop.product_infos.select_for_update().order_by("pk"))
         imported_ids = []
         for item in data["goods"]:
-            # Общий товар может продаваться у нескольких поставщиков.
-            # При смене названия связываем предложение с другим Product.
+            # Один товар могут продавать разные поставщики.
             product, _ = Product.objects.get_or_create(
                 name=item["name"],
                 category_id=item["category_id"],
                 defaults={"description": item["description"]},
             )
-            if not product.product_infos.exclude(shop=shop).exists():
+            has_other_shops = product.product_infos.exclude(shop=shop).exists()
+            if not has_other_shops:
                 product.description = item["description"]
                 product.save(update_fields=["description"])
             info, _ = ProductInfo.objects.update_or_create(
@@ -179,12 +191,12 @@ def import_catalog(content, user, url=""):
                 },
             )
             imported_ids.append(info.pk)
+            # Заменяем старые характеристики новыми.
             info.product_parameters.all().delete()
-            # Старые характеристики убираем, иначе они переживут новый прайс.
             for name, value in item["parameters"].items():
                 parameter, _ = Parameter.objects.get_or_create(name=name)
                 ProductParameter.objects.create(product_info=info, parameter=parameter, value=value)
-        # Не удаляем предложения: на них ссылаются старые заказы.
+        # Предложения нужны для истории заказов, поэтому не удаляем их.
         shop.product_infos.exclude(pk__in=imported_ids).update(is_active=False, quantity=0)
     return {"shop_id": shop.pk, "products": len(imported_ids), "categories": len(categories)}
 
@@ -205,35 +217,37 @@ def export_catalog(user):
         .order_by("external_id")
     )
     for info in offers:
-        # В админке товар могли перенести. Эту категорию тоже надо выгрузить.
+        # В админке товар могли перенести в другую категорию.
         category_ids.add(info.product.category_id)
-        goods.append(
-            {
-                "id": info.external_id,
-                "category": info.product.category_id,
-                "model": info.model,
-                "name": info.product.name,
-                "description": info.product.description,
-                "price": str(info.price),
-                "price_rrc": str(info.price_rrc),
-                "quantity": info.quantity,
-                "parameters": {
-                    item.parameter.name: item.value for item in info.product_parameters.all()
-                },
-            }
-        )
+        parameters = {}
+        for item in info.product_parameters.all():
+            parameters[item.parameter.name] = item.value
+        good = {
+            "id": info.external_id,
+            "category": info.product.category_id,
+            "model": info.model,
+            "name": info.product.name,
+            "description": info.product.description,
+            "price": str(info.price),
+            "price_rrc": str(info.price_rrc),
+            "quantity": info.quantity,
+            "parameters": parameters,
+        }
+        goods.append(good)
+
+    categories = []
+    for category in Category.objects.filter(pk__in=category_ids).order_by("id"):
+        categories.append({"id": category.pk, "name": category.name})
     data = {
         "shop": shop.name,
-        "categories": list(
-            Category.objects.filter(pk__in=category_ids).order_by("id").values("id", "name")
-        ),
+        "categories": categories,
         "goods": goods,
     }
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
 
 def _public_address(url):
-    """Разрешаем только обычные публичные HTTP(S)-адреса."""
+    """Проверяем, что адрес не ведет в локальную сеть."""
     try:
         parsed = urlsplit(url)
         if (
@@ -256,17 +270,16 @@ def _public_address(url):
 
 
 def download_catalog(url):
-    """Загружаем ограниченный объем; каждый редирект проверяем заново."""
+    """Скачиваем прайс с ограничением времени и размера."""
     deadline = time.monotonic() + 30
     for _ in range(4):
         parsed, port, address = _public_address(url)
-        connection_class = (
-            http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-        )
-        connection = connection_class(parsed.hostname, port=port, timeout=10)
+        if parsed.scheme == "https":
+            connection = http.client.HTTPSConnection(parsed.hostname, port=port, timeout=10)
+        else:
+            connection = http.client.HTTPConnection(parsed.hostname, port=port, timeout=10)
         try:
-            # Подключаемся к проверенному IP, чтобы повторный DNS-запрос
-            # не мог подменить публичный адрес локальным.
+            # Используем проверенный IP без повторного запроса DNS.
             connection.sock = socket.create_connection((address, port), timeout=10)
             if parsed.scheme == "https":
                 connection.sock = ssl.create_default_context().wrap_socket(
@@ -300,9 +313,9 @@ def download_catalog(url):
                 content.extend(chunk)
                 if len(content) > settings.CATALOG_MAX_BYTES:
                     raise CatalogError("Файл слишком большой")
+        except CatalogError:
+            raise
         except (OSError, http.client.HTTPException, ValueError) as exc:
-            if isinstance(exc, CatalogError):
-                raise
             raise CatalogError("Не удалось скачать прайс") from exc
         finally:
             connection.close()

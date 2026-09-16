@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 class EmailFormMixin:
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        if User.objects.filter(email__iexact=email).exclude(pk=self.instance.pk).exists():
+        other_users = User.objects.filter(email__iexact=email).exclude(pk=self.instance.pk)
+        if other_users.exists():
             raise forms.ValidationError("Пользователь с таким email уже существует.")
         return email
 
@@ -141,17 +142,15 @@ class ShopAdmin(admin.ModelAdmin):
                         messages.SUCCESS,
                     )
 
-            # Сначала сохраняем задание: иначе быстрый worker может его ещё не найти.
+            # Worker получает задание после его сохранения в БД.
             with transaction.atomic():
                 job = CatalogJob.objects.create(user=form.cleaned_data["supplier"], kind="import")
                 transaction.on_commit(queue_import, robust=True)
             return HttpResponseRedirect(reverse("admin:backend_catalogjob_change", args=[job.pk]))
-        context = {
-            **self.admin_site.each_context(request),
-            "title": "Импорт прайса поставщика",
-            "opts": self.model._meta,
-            "form": form,
-        }
+        context = self.admin_site.each_context(request)
+        context["title"] = "Импорт прайса поставщика"
+        context["opts"] = self.model._meta
+        context["form"] = form
         return TemplateResponse(request, "admin/backend/shop/import.html", context)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -162,7 +161,10 @@ class ShopAdmin(admin.ModelAdmin):
 
 class ReadOnlyAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
-        return tuple(field.name for field in self.model._meta.fields)
+        field_names = []
+        for field in self.model._meta.fields:
+            field_names.append(field.name)
+        return tuple(field_names)
 
     def has_add_permission(self, request):
         return False
@@ -205,10 +207,15 @@ class OrderAdmin(ReadOnlyAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         fields = super().get_readonly_fields(request, obj)
-        return tuple(field for field in fields if field != "state") + ("total_sum",)
+        readonly_fields = []
+        for field in fields:
+            if field != "state":
+                readonly_fields.append(field)
+        readonly_fields.append("total_sum")
+        return tuple(readonly_fields)
 
     def save_model(self, request, obj, form, change):
-        # Тут тоже нужны возврат остатков и письмо, как при смене статуса через API.
+        # Правила смены статуса одинаковы для админки и API.
         change_order_status(obj, obj.state)
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
@@ -258,7 +265,7 @@ class CategoryAdmin(admin.ModelAdmin):
     search_fields = ("name",)
 
     def has_add_permission(self, request):
-        # ID категорий берём из прайса. Автоматический ID может случайно занять чужой.
+        # ID категорий приходят из прайса, поэтому вручную категории не создаём.
         return False
 
 

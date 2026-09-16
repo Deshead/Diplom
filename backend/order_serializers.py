@@ -35,7 +35,7 @@ class ContactSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        # Адресов может быть несколько, а телефон у покупателя всё равно один.
+        # Один телефон покупателя используется для всех его адресов.
         phone = validated_data.pop("phone", None)
         user = validated_data["user"]
         if phone is not None:
@@ -92,7 +92,9 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = ("id", "dt", "state", "ordered_items", "total_sum", "contact")
 
     def get_contact(self, obj):
-        # Старый заказ показываем с прежним адресом, даже если человек уже переехал.
+        # Показываем адрес на момент заказа.
         if obj.contact_snapshot:
             return obj.contact_snapshot
-        return ContactSerializer(obj.contact).data if obj.contact_id else None
+        if obj.contact_id:
+            return ContactSerializer(obj.contact).data
+        return None

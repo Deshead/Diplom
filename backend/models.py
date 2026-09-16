@@ -90,7 +90,7 @@ class Product(models.Model):
 
 
 class ProductInfo(models.Model):
-    # Сам товар общий, а цена и остаток у каждого магазина свои.
+    # Цена и остаток товара в конкретном магазине.
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="product_infos")
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name="product_infos")
     external_id = models.PositiveBigIntegerField()
@@ -160,7 +160,7 @@ class Order(models.Model):
     dt = models.DateTimeField(auto_now_add=True)
     state = models.CharField(max_length=15, choices=STATE_CHOICES, default="basket")
     contact = models.ForeignKey(Contact, null=True, blank=True, on_delete=models.SET_NULL)
-    # Снимок адреса сохраняет историю после редактирования адресной книги.
+    # Адрес на момент заказа. Изменения в профиле на него не влияют.
     contact_snapshot = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -173,10 +173,13 @@ class Order(models.Model):
 
     @property
     def total_sum(self):
-        return sum((item.total_sum for item in self.ordered_items.all()), Decimal("0.00"))
+        total = Decimal("0.00")
+        for item in self.ordered_items.all():
+            total += item.total_sum
+        return total
 
     def __str__(self):
-        return f"Заказ №{self.pk} — {self.get_state_display()}"
+        return f"Заказ №{self.pk} ({self.get_state_display()})"
 
 
 class OrderItem(models.Model):
@@ -186,7 +189,7 @@ class OrderItem(models.Model):
     )
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    # Это названия на момент покупки. Магазин потом может хоть переименоваться.
+    # Названия сохраняем на момент покупки.
     product_name = models.CharField(max_length=255, blank=True)
     shop_name = models.CharField(max_length=100, blank=True)
 
@@ -202,7 +205,6 @@ class OrderItem(models.Model):
 
 
 def generate_token():
-    # Код из даты рождения тут явно был бы плохой идеей.
     return secrets.token_hex(32)
 
 

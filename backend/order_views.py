@@ -37,7 +37,7 @@ class IsSupplier(BasePermission):
 def read_items(data, serializer_class):
     items = data.get("items")
     if isinstance(items, str):
-        # В form-data из Postman список приходит обычной строкой, её ещё надо разобрать.
+        # В form-data список товаров приходит JSON-строкой.
         try:
             items = json.loads(items)
         except (ValueError, TypeError):
@@ -46,7 +46,10 @@ def read_items(data, serializer_class):
         raise ValidationError({"items": "Ожидается список от 1 до 100 позиций."})
     serializer = serializer_class(data=items, many=True)
     serializer.is_valid(raise_exception=True)
-    field = "product_info" if serializer_class is BasketAddSerializer else "id"
+    if serializer_class is BasketAddSerializer:
+        field = "product_info"
+    else:
+        field = "id"
     identifiers = [item[field] for item in serializer.validated_data]
     if len(identifiers) != len(set(identifiers)):
         raise ValidationError({"items": "Позиции не должны повторяться."})
@@ -60,16 +63,18 @@ def read_ids(data):
     if not isinstance(values, list) or not values or len(values) > 100:
         raise ValidationError({"items": "Укажите список ID или ID через запятую."})
     field = serializers.IntegerField(min_value=1)
-    return list({field.run_validation(value) for value in values})
+    ids = set()
+    for value in values:
+        ids.add(field.run_validation(value))
+    return list(ids)
 
 
 class BasketView(APIView):
     permission_classes = [IsAuthenticated, IsBuyer]
 
     def get(self, request):
-        orders = Order.objects.filter(user=request.user, state="basket").prefetch_related(
-            "ordered_items"
-        )
+        orders = Order.objects.filter(user=request.user, state="basket")
+        orders = orders.prefetch_related("ordered_items")
         return Response(OrderSerializer(orders, many=True).data)
 
     @transaction.atomic
@@ -77,19 +82,20 @@ class BasketView(APIView):
         items = read_items(request.data, BasketAddSerializer)
         User.objects.select_for_update().get(pk=request.user.pk)
         order, _ = Order.objects.get_or_create(user=request.user, state="basket")
-        offers = {
-            offer.pk: offer
-            for offer in ProductInfo.objects.select_for_update()
-            .filter(pk__in=[item["product_info"] for item in items])
-            .order_by("pk")
-        }
+        offer_ids = [item["product_info"] for item in items]
+        offers_query = ProductInfo.objects.select_for_update().filter(pk__in=offer_ids)
+        offers = {}
+        for offer in offers_query.order_by("pk"):
+            offers[offer.pk] = offer
         for data in items:
             offer = offers.get(data["product_info"])
             if offer is None:
                 raise ValidationError({"product_info": "Товар не найден."})
             item = order.ordered_items.filter(product_info=offer).first()
-            # Ещё одно добавление товара увеличивает количество в уже готовой строке.
-            quantity = data["quantity"] + (item.quantity if item else 0)
+            # При повторном добавлении увеличиваем количество товара в корзине.
+            quantity = data["quantity"]
+            if item is not None:
+                quantity += item.quantity
             check_offer(offer, quantity)
             OrderItem.objects.update_or_create(
                 order=order,
@@ -108,18 +114,18 @@ class BasketView(APIView):
         items = read_items(request.data, BasketUpdateSerializer)
         User.objects.select_for_update().get(pk=request.user.pk)
         order = get_object_or_404(Order, user=request.user, state="basket")
-        lines = {
-            item.pk: item
-            for item in order.ordered_items.filter(pk__in=[row["id"] for row in items])
-        }
+        line_ids = [data["id"] for data in items]
+        lines = {}
+        offer_ids = []
+        for item in order.ordered_items.filter(pk__in=line_ids):
+            lines[item.pk] = item
+            offer_ids.append(item.product_info_id)
         if len(lines) != len(items):
             raise ValidationError({"items": "Позиция не найдена в вашей корзине."})
-        offers = {
-            offer.pk: offer
-            for offer in ProductInfo.objects.select_for_update()
-            .filter(pk__in=[item.product_info_id for item in lines.values()])
-            .order_by("pk")
-        }
+        offers_query = ProductInfo.objects.select_for_update().filter(pk__in=offer_ids)
+        offers = {}
+        for offer in offers_query.order_by("pk"):
+            offers[offer.pk] = offer
         for data in items:
             item = lines[data["id"]]
             offer = offers[item.product_info_id]
@@ -148,7 +154,8 @@ class ContactView(APIView):
     permission_classes = [IsAuthenticated, IsBuyer]
 
     def get(self, request):
-        contacts = Contact.objects.filter(user=request.user).select_related("user").order_by("pk")
+        contacts = Contact.objects.filter(user=request.user)
+        contacts = contacts.select_related("user").order_by("pk")
         return Response(ContactSerializer(contacts, many=True).data)
 
     @transaction.atomic
@@ -195,11 +202,8 @@ class OrderView(APIView):
     permission_classes = [IsAuthenticated, IsBuyer]
 
     def get(self, request):
-        orders = (
-            Order.objects.filter(user=request.user)
-            .exclude(state="basket")
-            .prefetch_related("ordered_items")
-        )
+        orders = Order.objects.filter(user=request.user).exclude(state="basket")
+        orders = orders.prefetch_related("ordered_items")
         return Response(OrderSerializer(orders, many=True).data)
 
     def post(self, request):
@@ -215,12 +219,9 @@ class OrderDetailView(APIView):
     permission_classes = [IsAuthenticated, IsBuyer]
 
     def get(self, request, pk):
-        order = get_object_or_404(
-            Order.objects.filter(user=request.user)
-            .exclude(state="basket")
-            .prefetch_related("ordered_items"),
-            pk=pk,
-        )
+        orders = Order.objects.filter(user=request.user).exclude(state="basket")
+        orders = orders.prefetch_related("ordered_items")
+        order = get_object_or_404(orders, pk=pk)
         return Response(OrderSerializer(order).data)
 
 
@@ -236,21 +237,19 @@ class OrderStatusView(APIView):
         order = change_order_status(order, new_state)
         return Response({"Status": True, "id": order.pk, "state": order.state})
 
-    post = patch
+    def post(self, request, pk):
+        return self.patch(request, pk)
 
 
 class PartnerOrders(APIView):
     permission_classes = [IsAuthenticated, IsSupplier]
 
     def get(self, request):
-        # Фильтруем сами строки, чтобы не раскрыть товары и сумму других поставщиков.
+        # Поставщик видит только свои товары и их сумму.
         items = OrderItem.objects.filter(product_info__shop__user=request.user)
-        orders = (
-            Order.objects.filter(ordered_items__product_info__shop__user=request.user)
-            .exclude(state="basket")
-            .distinct()
-            .prefetch_related(Prefetch("ordered_items", queryset=items))
-        )
+        orders = Order.objects.filter(ordered_items__product_info__shop__user=request.user)
+        orders = orders.exclude(state="basket").distinct()
+        orders = orders.prefetch_related(Prefetch("ordered_items", queryset=items))
         return Response(OrderSerializer(orders, many=True).data)
 
 

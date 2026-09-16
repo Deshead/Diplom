@@ -1,24 +1,14 @@
 # Сервис закупок
 
-Учебный backend на Django REST Framework для заказа товаров у нескольких поставщиков. Покупатель выбирает предложения магазинов, собирает корзину и оформляет заказ. Поставщик загружает YAML-прайс, управляет приемом заказов и получает свои позиции в заказах.
+Backend на Django REST Framework по [заданию Нетологии](https://github.com/netology-code/python-final-diplom).
 
-Проект написан по [заданию Нетологии](https://github.com/netology-code/python-final-diplom). Реализованы базовая часть и дополнительные возможности: экспорт, Django Admin, задачи Celery и Docker Compose. Пользовательский интерфейс — REST API; администратор работает через Django Admin.
+Покупатель выбирает товары нескольких магазинов, собирает корзину и оформляет заказ. Поставщик загружает YAML-прайс и включает или отключает прием заказов. Администратор меняет статусы заказов. Подтверждения и накладные отправляются по email.
 
-## Возможности
+Есть регистрация, восстановление пароля, поиск товаров, адреса доставки, импорт и экспорт прайсов. Запросы описаны в [docs/API.md](docs/API.md), примеры — в [requests.http](requests.http).
 
-- Регистрация с подтверждением email, вход по email и паролю, выход, восстановление пароля.
-- Каталог с поиском, фильтрами по магазину и категории, описаниями и произвольными характеристиками.
-- Импорт и экспорт YAML-прайса; просмотр результата обработки.
-- Корзина с товарами нескольких магазинов, изменение количества и удаление позиций.
-- До пяти адресов доставки и один телефон у пользователя.
-- Проверка наличия и списание остатков при оформлении заказа.
-- История заказов со снимками названий, цен и адреса доставки.
-- Письмо покупателю и накладная администратору при оформлении, уведомления об изменении статуса.
-- Админка со сменой статуса заказа и запуском импорта.
+## Запуск
 
-## Локальный запуск
-
-Нужны Python 3.10 или новее и Git. Для первого запуска подходит SQLite: PostgreSQL и Redis устанавливать отдельно не требуется. Команды выполняются из корня проекта.
+Нужен Python 3.10 или новее. Команды выполняются из папки проекта. Локально используются SQLite, письма в терминале и задачи без Redis.
 
 ### Windows, PowerShell
 
@@ -42,32 +32,37 @@ cp .env.example .env
 .venv/bin/python manage.py runserver
 ```
 
-`seed_demo` создает учебных покупателя, двух поставщиков и администратора, выводит данные для входа и импортирует прайсы. В первом прайсе 14 товаров из задания; второй нужен для проверки заказа из нескольких магазинов. Используйте эту команду для знакомства с проектом: она доступна при `DJANGO_DEBUG=true`. Для создания собственного администратора выполните `python manage.py createsuperuser` выбранным интерпретатором.
+При повторном запуске не перезаписывайте свой `.env`. Переменные окружения имеют приоритет над этим файлом. `SECRET_KEY` записывайте в одинарных кавычках: `SECRET_KEY='ваш-ключ'`. Тогда Compose не будет подставлять переменные вместо знака `$` в ключе.
 
-Учебные аккаунты: `buyer@example.com`, `supplier1@example.com`, `supplier2@example.com`, `admin@example.com`. Пароль для вновь созданных аккаунтов: `Demo-Orders-2026!`. Повторный запуск не меняет пароли существующих пользователей.
+Каталог: <http://127.0.0.1:8000/api/v1/products>. Админка: <http://127.0.0.1:8000/admin/>.
 
-Откройте:
+### Демо
 
-- API каталога: <http://127.0.0.1:8000/api/v1/products>
-- Django Admin: <http://127.0.0.1:8000/admin/>
+`seed_demo` загружает два прайса и создает аккаунты:
 
-Файл `.env` не попадает в Git. При повторном запуске не копируйте `.env.example` поверх собственных настроек.
+| Роль | Email |
+| --- | --- |
+| Покупатель | `buyer@example.com` |
+| Поставщики | `supplier1@example.com`, `supplier2@example.com` |
+| Администратор | `admin@example.com` |
 
-## Как посмотреть письма и фоновые задачи
+Пароль новых аккаунтов: `Demo-Orders-2026!`. При повторном запуске пароли не меняются, прайсы обновляются. Команда работает только при `DJANGO_DEBUG=true`.
 
-В локальном `.env.example` выбран `console.EmailBackend`: письма, в том числе токены подтверждения регистрации и восстановления пароля, выводятся в терминал запущенного Django. Реальное письмо в почтовый ящик в этом режиме не отправляется.
+Своего администратора можно создать командой `manage.py createsuperuser`, запустив ее тем же Python из `.venv`.
 
-Если подтверждение не пришло или токен просрочен, отправьте `POST /api/v1/user/register/resend` с `{"email": "ivan@example.com"}`. Новый токен заменяет предыдущий. Ответ одинаковый для любого адреса; письмо отправляется только для регистрации, которая еще ожидает подтверждения. При сбое почты или очереди аккаунт сохраняется, поэтому после восстановления сервиса можно повторить этот запрос.
+## Почта и Celery
 
-`CELERY_TASK_ALWAYS_EAGER=true` выполняет задачи сразу в текущем процессе. Это удобно для локального знакомства на Windows. Импорт и экспорт сохраняют результат в `CatalogJob`; API возвращает `job_id`, по которому можно получить результат.
+По умолчанию письма выводятся в терминал Django. Там можно взять токены регистрации и сброса пароля. Повторное письмо регистрации: `POST /api/v1/user/register/resend` с полем `email`.
 
-В Docker работают отдельный Celery worker и Redis, а письма принимает Mailpit. Для отправки на настоящий email замените `EMAIL_BACKEND` на `django.core.mail.backends.smtp.EmailBackend`, заполните SMTP-настройки в `.env` и укажите `ADMIN_EMAIL`. Настройки SMTP зависят от выбранного почтового сервиса.
+При `CELERY_TASK_ALWAYS_EAGER=true` задачи выполняются сразу, без отдельного worker. В Docker используется Redis и отдельный Celery worker.
 
-## Docker Compose
+Для настоящей почты при локальном запуске укажите в `.env` backend `django.core.mail.backends.smtp.EmailBackend`, настройки SMTP и `ADMIN_EMAIL`.
 
-Нужны Docker Engine с Compose либо Docker Desktop в режиме Linux containers. Это учебное окружение: Django запускается с `runserver` и `DJANGO_DEBUG=true`, чтобы сразу работали API и статика админки.
+В Compose письма идут в Mailpit. Для своего SMTP в контейнерах нужно изменить `EMAIL_*` в общей секции `x-app-environment` файла `docker-compose.yml`: она переопределяет `.env` для `web` и `worker`.
 
-Если `.env` еще нет, скопируйте его из `.env.example`. Затем:
+## Docker
+
+Нужен Docker Engine с Compose или Docker Desktop с Linux containers. Сначала создайте `.env` из `.env.example`.
 
 ```bash
 docker compose up --build -d
@@ -75,17 +70,7 @@ docker compose ps
 docker compose exec web python manage.py seed_demo
 ```
 
-Сервисы:
-
-| Сервис | Назначение |
-| --- | --- |
-| `web` | Django на <http://127.0.0.1:8000> |
-| `db` | PostgreSQL, данные в отдельном volume |
-| `redis` | Очередь и результаты Celery |
-| `worker` | Отправка писем, импорт и экспорт |
-| `mailpit` | Просмотр писем на <http://127.0.0.1:8025> |
-
-Compose переопределяет локальные настройки: использует PostgreSQL, `CELERY_TASK_ALWAYS_EAGER=false` и SMTP Mailpit на порту `1025`. Порт SMTP доступен внутри сети контейнеров. `web` ждет готовности базы и Redis, выполняет миграции; `worker` запускается после проверки готовности `web`.
+Запускаются Django, PostgreSQL, Redis, Celery и Mailpit. API доступен на порту `8000`, письма — на <http://127.0.0.1:8025>. Это учебный запуск с `runserver` и `DJANGO_DEBUG=true`. Миграции выполняются автоматически до запуска worker.
 
 ```bash
 docker compose logs -f web worker
@@ -94,59 +79,52 @@ docker compose exec web python manage.py createsuperuser
 docker compose down
 ```
 
-`docker compose down` останавливает окружение, сохраняя данные в volumes. После изменения кода пересоберите образ командой `docker compose up --build -d`.
+`down` сохраняет данные PostgreSQL. После изменения кода повторите `docker compose up --build -d`.
 
-## Работа с API
-
-Базовый адрес — `http://127.0.0.1:8000/api/v1`. Пути API используются без завершающего `/`. Поддерживаются JSON и формы из исходной Postman-коллекции.
-
-1. Зарегистрируйтесь через `POST /user/register`.
-2. Возьмите токен из письма и отправьте `POST /user/register/confirm`.
-3. Войдите через `POST /user/login` и сохраните поле `Token`.
-4. Для закрытых запросов добавляйте `Authorization: Token <значение>`.
-5. Получите `/products`, добавьте выбранные `product_info` в `/basket`.
-6. Создайте адрес через `/user/contact`.
-7. Передайте ID корзины и адреса в `POST /order`.
-8. Получите `/order` и `/order/<id>`, посмотрите письма.
-
-Подробные поля и примеры: [docs/API.md](docs/API.md). Готовые запросы для HTTP-клиента: [requests.http](requests.http). Значения ID и токенов подставляются из ответов вашего сервера.
-
-Поставщик регистрируется с `type=shop`, подтверждает email и загружает прайс через `POST /partner/update`. Магазин создается при первом успешном импорте. Поставщик видит только свои позиции оформленных заказов.
-
-## Проверка проекта
-
-Итоги выполненных проверок: [docs/VERIFICATION.md](docs/VERIFICATION.md).
-
-После установки `requirements-dev.txt` выполните:
+## Проверки
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py check
 .\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+.\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m coverage run manage.py test
 .\.venv\Scripts\python.exe -m coverage report
 .\.venv\Scripts\python.exe scripts/smoke_test.py
 ```
 
-На Linux/macOS замените `.\.venv\Scripts\python.exe` на `.venv/bin/python`. Проверки также настроены в GitHub Actions для Python 3.10 и 3.12 с SQLite и отдельным запуском на PostgreSQL 17. Тесты создают отдельную временную базу и используют тестовый почтовый backend. Команды выше — инструкция для повторной проверки; фактический результат определяется выводом запуска.
+На Linux/macOS замените `.\.venv\Scripts\python.exe` на `.venv/bin/python`. `smoke_test.py` запускает временную базу и HTTP-сервер, проверяет запросы и письма. Рабочая база не меняется.
 
-`scripts/smoke_test.py` сам создает временную базу, применяет миграции, загружает демо и запускает настоящий HTTP-сервер на свободном локальном порту. Он проходит сценарий через HTTP и проверяет письма, сохраненные в файлы. После завершения сервер останавливается, временные файлы удаляются; рабочая база проекта не используется.
+Для проверки очереди и SMTP нужны программы Redis и Mailpit. Пример с локальными путями на Windows:
 
-Перед защитой пройдите сценарий с регистрацией, двумя магазинами, оформлением заказа и сменой статуса. Отдельно проверьте ошибочные данные, чужой адрес, недостаточный остаток, повторное оформление и повторный импорт прайса. Чеклист задания находится в [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
-
-## Структура
-
-```text
-backend/           модели, API, бизнес-логика, задачи, админка и тесты
-orders/            настройки Django и Celery
-data/              YAML-прайсы для импорта
-docs/              описание API и соответствие заданию
-requests.http      сценарий ручной проверки
-docker-compose.yml учебное окружение из пяти сервисов
+```powershell
+.\.venv\Scripts\python.exe scripts/async_smoke_test.py `
+  --redis-server .local/tools/redis/Redis-7.2.16-Windows-x64-msys2/redis-server.exe `
+  --mailpit .local/tools/mailpit/mailpit.exe
 ```
 
-## Исходные материалы и сдача
+На Linux/macOS:
 
-`data/shop1.yaml` взят из [репозитория задания](https://github.com/netology-code/python-final-diplom/blob/master/data/shop1.yaml). Код приложения написан заново; происхождение данных сохранено. Помощь AI описана в [docs/AI_USAGE.md](docs/AI_USAGE.md).
+```bash
+.venv/bin/python scripts/async_smoke_test.py \
+  --redis-server /usr/bin/redis-server \
+  --mailpit /usr/local/bin/mailpit
+```
 
-По правилам Нетологии итоговый проект нужно разместить в своем GitHub-репозитории, доступном дипломному руководителю, и отправить постоянную ссылку в личном кабинете. Публикация в GitHub и сдача в личном кабинете выполняются владельцем аккаунтов.
+Подставьте пути к установленным программам. Папка `.local` не входит в репозиторий. Скрипт сам запускает и останавливает серверы, использует временную базу и проверяет пять писем.
+
+Результаты: [docs/VERIFICATION.md](docs/VERIFICATION.md). Требования задания: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
+
+## Файлы
+
+```text
+backend/           модели, API, задачи, админка, тесты
+orders/            настройки Django и Celery
+data/              прайсы
+docs/              документация
+scripts/           проверки HTTP, Redis и SMTP
+requests.http      примеры запросов
+docker-compose.yml запуск сервисов в Docker
+```
+
+Исходный прайс `data/shop1.yaml`: [файл из задания Нетологии](https://github.com/netology-code/python-final-diplom/blob/master/data/shop1.yaml).

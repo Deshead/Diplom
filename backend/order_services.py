@@ -26,8 +26,11 @@ def check_offer(offer, quantity):
 def queue_email(subject, body, recipients):
     from .tasks import send_email
 
+    def send_after_commit():
+        send_email.delay(subject, body, recipients)
+
     # Письмо отправляется только после успешного сохранения заказа.
-    transaction.on_commit(lambda: send_email.delay(subject, body, recipients), robust=True)
+    transaction.on_commit(send_after_commit, robust=True)
 
 
 def invoice_text(order):
@@ -70,19 +73,18 @@ def checkout(user, basket_id, contact_id):
         raise ValidationError("Корзина пуста.")
     if not contact.phone:
         raise ValidationError("Укажите телефон в контакте доставки.")
-    offers = {
-        offer.pk: offer
-        for offer in ProductInfo.objects.select_for_update()
-        .filter(pk__in=[item.product_info_id for item in items])
-        .order_by("pk")
-    }
-    # Если не хватит хотя бы одного товара, atomic откатит и предыдущие списания.
+    offer_ids = [item.product_info_id for item in items]
+    offers_query = ProductInfo.objects.select_for_update().filter(pk__in=offer_ids)
+    offers = {}
+    for offer in offers_query.order_by("pk"):
+        offers[offer.pk] = offer
+    # При нехватке товара транзакция отменит все списания этого заказа.
     for item in items:
         offer = offers[item.product_info_id]
         check_offer(offer, item.quantity)
         offer.quantity -= item.quantity
         offer.save(update_fields=["quantity"])
-        # История заказа не должна меняться после следующего импорта прайса.
+        # Сохраняем цену и название на момент заказа.
         item.price = offer.price
         item.product_name = offer.product.name
         item.shop_name = offer.shop.name
@@ -102,18 +104,18 @@ def change_order_status(order, new_state):
     User.objects.select_for_update().get(pk=order.user_id)
     order = Order.objects.select_for_update().get(pk=order.pk)
     if new_state == order.state and order.state != "basket":
-        # Повторная отмена не должна вернуть тот же товар на склад ещё раз.
+        # Повторная отмена не должна повторно вернуть товар на склад.
         return order
-    if new_state not in TRANSITIONS.get(order.state, set()):
+    allowed_states = TRANSITIONS.get(order.state, set())
+    if new_state not in allowed_states:
         raise ValidationError({"state": f"Нельзя изменить статус {order.state} на {new_state}."})
     if new_state == "canceled":
         items = list(order.ordered_items.order_by("product_info_id"))
-        offers = {
-            offer.pk: offer
-            for offer in ProductInfo.objects.select_for_update()
-            .filter(pk__in=[item.product_info_id for item in items])
-            .order_by("pk")
-        }
+        offer_ids = [item.product_info_id for item in items]
+        offers_query = ProductInfo.objects.select_for_update().filter(pk__in=offer_ids)
+        offers = {}
+        for offer in offers_query.order_by("pk"):
+            offers[offer.pk] = offer
         for item in items:
             offer = offers[item.product_info_id]
             offer.quantity += item.quantity
