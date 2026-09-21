@@ -132,6 +132,10 @@ class AuthTests(APITestCase):
             "/api/v1/user/details",
             {
                 "first_name": "Петр",
+                "last_name": "Петров",
+                "company": "Магазин",
+                "position": "Менеджер",
+                "phone": "+79991234567",
                 "type": "shop",
                 "is_staff": True,
                 "email": "changed@example.com",
@@ -140,11 +144,21 @@ class AuthTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         user.refresh_from_db()
         self.assertEqual(user.first_name, "Петр")
+        self.assertEqual(user.last_name, "Петров")
+        self.assertEqual(user.company, "Магазин")
+        self.assertEqual(user.position, "Менеджер")
+        self.assertEqual(user.phone, "+79991234567")
         self.assertEqual(user.type, "buyer")
         self.assertFalse(user.is_staff)
         self.assertEqual(user.email, self.data["email"])
         response = self.client.post("/api/v1/user/details", {"password": "Changed-Study-2026!"})
         self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, "Петр")
+        self.assertEqual(user.last_name, "Петров")
+        self.assertEqual(user.company, "Магазин")
+        self.assertEqual(user.position, "Менеджер")
+        self.assertEqual(user.phone, "+79991234567")
         self.assertNotIn("password", response.data["user"])
         self.assertEqual(self.client.get("/api/v1/user/details").status_code, 401)
 

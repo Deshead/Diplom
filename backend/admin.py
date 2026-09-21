@@ -160,12 +160,6 @@ class ShopAdmin(admin.ModelAdmin):
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
-    def get_readonly_fields(self, request, obj=None):
-        field_names = []
-        for field in self.model._meta.fields:
-            field_names.append(field.name)
-        return tuple(field_names)
-
     def has_add_permission(self, request):
         return False
 
@@ -204,15 +198,7 @@ class OrderAdmin(ReadOnlyAdmin):
     list_filter = ("state", "dt")
     search_fields = ("user__email",)
     inlines = (OrderItemInline,)
-
-    def get_readonly_fields(self, request, obj=None):
-        fields = super().get_readonly_fields(request, obj)
-        readonly_fields = []
-        for field in fields:
-            if field != "state":
-                readonly_fields.append(field)
-        readonly_fields.append("total_sum")
-        return tuple(readonly_fields)
+    readonly_fields = ("id", "user", "dt", "contact", "contact_snapshot", "total_sum")
 
     def save_model(self, request, obj, form, change):
         # Правила смены статуса одинаковы для админки и API.
@@ -231,18 +217,42 @@ class OrderAdmin(ReadOnlyAdmin):
 class OrderItemAdmin(ReadOnlyAdmin):
     list_display = ("order", "product_name", "shop_name", "quantity", "price")
     list_filter = ("order__state",)
+    readonly_fields = (
+        "id",
+        "order",
+        "product_info",
+        "quantity",
+        "price",
+        "product_name",
+        "shop_name",
+    )
 
 
 @admin.register(CatalogJob)
 class CatalogJobAdmin(ReadOnlyAdmin):
     list_display = ("id", "user", "kind", "status", "created_at")
     list_filter = ("kind", "status")
+    readonly_fields = ("id", "user", "kind", "status", "result", "error", "created_at")
 
 
 @admin.register(Contact)
 class ContactAdmin(ReadOnlyAdmin):
     list_display = ("user", "city", "street", "house")
     search_fields = ("user__email", "city")
+    readonly_fields = (
+        "id",
+        "user",
+        "first_name",
+        "last_name",
+        "middle_name",
+        "email",
+        "city",
+        "street",
+        "house",
+        "structure",
+        "building",
+        "apartment",
+    )
 
 
 @admin.register(ProductInfo)
@@ -250,6 +260,22 @@ class ProductInfoAdmin(ReadOnlyAdmin):
     list_display = ("product", "shop", "external_id", "quantity", "price", "is_active")
     list_filter = ("shop", "is_active")
     search_fields = ("product__name", "model")
+    readonly_fields = (
+        "id",
+        "product",
+        "shop",
+        "external_id",
+        "model",
+        "quantity",
+        "price",
+        "price_rrc",
+        "is_active",
+    )
+
+
+@admin.register(ProductParameter)
+class ProductParameterAdmin(ReadOnlyAdmin):
+    readonly_fields = ("id", "product_info", "parameter", "value")
 
 
 @admin.register(Product)
@@ -270,7 +296,6 @@ class CategoryAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Parameter)
-admin.site.register(ProductParameter, ReadOnlyAdmin)
 admin.site.site_header = "Управление закупками"
 admin.site.site_title = "Закупки"
 admin.site.index_title = "Каталог и заказы"

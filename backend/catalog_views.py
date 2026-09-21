@@ -35,12 +35,20 @@ class ShopView(generics.ListAPIView):
 
 
 def available_offers():
-    return (
-        ProductInfo.objects.filter(is_active=True, shop__state=True)
-        .select_related("shop", "product__category")
-        .prefetch_related("product_parameters__parameter")
-        .order_by("id")
-    )
+    offers = ProductInfo.objects.filter(is_active=True, shop__state=True)
+    offers = offers.select_related("shop", "product__category")
+    offers = offers.prefetch_related("product_parameters__parameter")
+    return offers.order_by("id")
+
+
+def validate_filter_id(value, parameter):
+    try:
+        number = int(value)
+    except (ValueError, TypeError):
+        raise serializers.ValidationError({parameter: "Нужно целое положительное число"})
+    if number < 1 or number > 9223372036854775807:
+        raise serializers.ValidationError({parameter: "Неверный идентификатор"})
+    return number
 
 
 class ProductInfoView(generics.ListAPIView):
@@ -49,18 +57,16 @@ class ProductInfoView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = available_offers()
-        for parameter, field in (("shop_id", "shop_id"), ("category_id", "product__category_id")):
-            value = self.request.query_params.get(parameter)
-            if value is not None:
-                try:
-                    number = int(value)
-                except (ValueError, TypeError):
-                    raise serializers.ValidationError(
-                        {parameter: "Нужно целое положительное число"}
-                    )
-                if not 1 <= number <= 9223372036854775807:
-                    raise serializers.ValidationError({parameter: "Неверный идентификатор"})
-                queryset = queryset.filter(**{field: number})
+        shop_id = self.request.query_params.get("shop_id")
+        if shop_id is not None:
+            shop_id = validate_filter_id(shop_id, "shop_id")
+            queryset = queryset.filter(shop_id=shop_id)
+
+        category_id = self.request.query_params.get("category_id")
+        if category_id is not None:
+            category_id = validate_filter_id(category_id, "category_id")
+            queryset = queryset.filter(product__category_id=category_id)
+
         search = self.request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
@@ -79,7 +85,7 @@ class ProductDetailView(generics.RetrieveAPIView):
         return available_offers()
 
 
-def _enqueue(job, task, **kwargs):
+def start_catalog_task(job, task, **kwargs):
     try:
         task.delay(job.pk, **kwargs)
     except Exception:
@@ -96,7 +102,9 @@ class PartnerUpdate(APIView):
     def post(self, request):
         uploaded = request.FILES.get("file")
         url = request.data.get("url")
-        if bool(uploaded) == bool(url):
+        if uploaded and url:
+            raise serializers.ValidationError("Укажите ровно один источник: file или url")
+        if not uploaded and not url:
             raise serializers.ValidationError("Укажите ровно один источник: file или url")
         content = None
         if uploaded:
@@ -109,7 +117,7 @@ class PartnerUpdate(APIView):
         else:
             url = serializers.URLField(max_length=200).run_validation(url)
         job = CatalogJob.objects.create(user=request.user, kind="import")
-        return _enqueue(job, do_import, content=content, url=url)
+        return start_catalog_task(job, do_import, content=content, url=url)
 
 
 class PartnerState(APIView):
@@ -133,7 +141,7 @@ class PartnerExport(APIView):
     def get(self, request):
         get_object_or_404(Shop, user=request.user)
         job = CatalogJob.objects.create(user=request.user, kind="export")
-        return _enqueue(job, do_export)
+        return start_catalog_task(job, do_export)
 
 
 class CatalogJobView(generics.RetrieveAPIView):

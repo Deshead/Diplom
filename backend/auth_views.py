@@ -78,8 +78,11 @@ class AccountSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", None)
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
+        instance.first_name = validated_data.get("first_name", instance.first_name)
+        instance.last_name = validated_data.get("last_name", instance.last_name)
+        instance.company = validated_data.get("company", instance.company)
+        instance.position = validated_data.get("position", instance.position)
+        instance.phone = validated_data.get("phone", instance.phone)
         if password is not None:
             instance.set_password(password)
             # После смены пароля нужно войти заново.
@@ -102,10 +105,28 @@ def send_confirmation(user):
         "Отправьте email и token на POST /api/v1/user/register/confirm.\n"
         "Токен действует 24 часа."
     )
-    # Отправляем письмо после сохранения пользователя.
-    transaction.on_commit(
-        lambda: send_email.delay("Подтверждение регистрации", body, [user.email]), robust=True
+
+    def send_after_save():
+        send_email.delay("Подтверждение регистрации", body, [user.email])
+
+    # Если сохранение не удалось, письмо не отправляем.
+    transaction.on_commit(send_after_save, robust=True)
+
+
+def send_password_reset(user):
+    # При повторном запросе старый код больше не работает.
+    EmailToken.objects.filter(user=user, purpose="reset").delete()
+    token = EmailToken.objects.create(user=user, purpose="reset")
+    body = (
+        f"Сброс пароля для {user.email}\nТокен: {token.key}\n"
+        "Отправьте token и password на POST /api/v1/user/password_reset/confirm.\n"
+        "Токен действует один час."
     )
+
+    def send_after_save():
+        send_email.delay("Сброс пароля", body, [user.email])
+
+    transaction.on_commit(send_after_save, robust=True)
 
 
 class RegisterAccount(PublicAuthView):
@@ -219,17 +240,7 @@ class PasswordReset(PublicAuthView):
             users = User.objects.select_for_update().filter(email__iexact=email, is_active=True)
             user = users.first()
             if user:
-                # Старый код сброса больше не нужен.
-                EmailToken.objects.filter(user=user, purpose="reset").delete()
-                token = EmailToken.objects.create(user=user, purpose="reset")
-                body = (
-                    f"Сброс пароля для {user.email}\nТокен: {token.key}\n"
-                    "Отправьте token и password на POST /api/v1/user/password_reset/confirm.\n"
-                    "Токен действует один час."
-                )
-                transaction.on_commit(
-                    lambda: send_email.delay("Сброс пароля", body, [user.email]), robust=True
-                )
+                send_password_reset(user)
         # Не сообщаем, зарегистрирован ли этот email.
         return Response({"Status": True, "message": "Если аккаунт существует, письмо отправлено"})
 
