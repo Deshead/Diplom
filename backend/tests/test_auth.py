@@ -172,6 +172,52 @@ class AuthTests(APITestCase):
         user.refresh_from_db()
         self.assertEqual(user.phone, "+7 (999) 123-45-67")
 
+    def test_profile_password_change_cancels_pending_reset(self):
+        user = User.objects.create_user(**self.data, is_active=True)
+        api_token = Token.objects.create(user=user)
+        reset_token = EmailToken.objects.create(user=user, purpose="reset")
+        self.client.credentials(HTTP_AUTHORIZATION="Token " + api_token.key)
+
+        response = self.client.patch("/api/v1/user/details", {"password": "Changed-Study-2026!"})
+        self.assertEqual(response.status_code, 200)
+        self.client.credentials()
+        response = self.client.post(
+            "/api/v1/user/password_reset/confirm",
+            {"token": reset_token.key, "password": "Old-Link-Password-2026!"},
+        )
+        self.assertEqual(response.status_code, 400)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Changed-Study-2026!"))
+        self.assertFalse(EmailToken.objects.filter(pk=reset_token.pk).exists())
+
+    def test_profile_edit_keeps_pending_reset_and_login(self):
+        user = User.objects.create_user(**self.data, is_active=True)
+        api_token = Token.objects.create(user=user)
+        reset_token = EmailToken.objects.create(user=user, purpose="reset")
+        self.client.credentials(HTTP_AUTHORIZATION="Token " + api_token.key)
+
+        response = self.client.patch("/api/v1/user/details", {"company": "Новая компания"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/user/details").status_code, 200)
+        self.assertTrue(EmailToken.objects.filter(pk=reset_token.pk).exists())
+
+    def test_profile_edit_does_not_restore_an_old_password(self):
+        user = User.objects.create_user(**self.data, is_active=True)
+        self.client.force_authenticate(user)
+
+        # Другой запрос успел поменять пароль после входа пользователя.
+        updated_user = User.objects.get(pk=user.pk)
+        updated_user.set_password("Changed-Study-2026!")
+        updated_user.save(update_fields=["password"])
+
+        response = self.client.patch("/api/v1/user/details", {"company": "Новая компания"})
+
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertEqual(user.company, "Новая компания")
+        self.assertTrue(user.check_password("Changed-Study-2026!"))
+
     def test_confirmation_can_be_retried_after_email_failure(self):
         with patch("backend.auth_views.send_email.delay", side_effect=OSError("queue down")):
             with self.assertLogs("django", level="ERROR"):

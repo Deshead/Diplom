@@ -76,7 +76,10 @@ class AccountSerializer(serializers.ModelSerializer):
             validate_phone(value)
         return value
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        # За время запроса профиль мог измениться в другой вкладке.
+        instance = User.objects.select_for_update().get(pk=instance.pk)
         password = validated_data.pop("password", None)
         instance.first_name = validated_data.get("first_name", instance.first_name)
         instance.last_name = validated_data.get("last_name", instance.last_name)
@@ -85,6 +88,8 @@ class AccountSerializer(serializers.ModelSerializer):
         instance.phone = validated_data.get("phone", instance.phone)
         if password is not None:
             instance.set_password(password)
+            # Код из старого письма после смены пароля уже не нужен.
+            EmailToken.objects.filter(user=instance, purpose="reset").delete()
             # После смены пароля нужно войти заново.
             Token.objects.filter(user=instance).delete()
         instance.save()
@@ -258,16 +263,18 @@ class PasswordResetConfirm(PublicAuthView):
         data = serializer.validated_data
         with transaction.atomic():
             valid_from = timezone.now() - timedelta(hours=1)
-            tokens = EmailToken.objects.select_for_update().filter(
+            tokens = EmailToken.objects.filter(
                 key=data["token"],
                 purpose="reset",
-                user__is_active=True,
                 created_at__gte=valid_from,
             )
             token = tokens.first()
             if not token:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
-            user = token.user
+            # Такой же порядок блокировок, как при запросе кода и изменении профиля.
+            user = User.objects.select_for_update().filter(pk=token.user_id, is_active=True).first()
+            if not user or not tokens.select_for_update().exists():
+                raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
             email = data.get("email")
             if email and email.lower() != user.email:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
