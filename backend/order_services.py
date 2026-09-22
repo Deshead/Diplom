@@ -30,6 +30,7 @@ def queue_email(subject, body, recipients):
         send_email.delay(subject, body, recipients)
 
     # Письмо отправляется только после успешного сохранения заказа.
+    # TODO: сохранять письма на повторную отправку, если Redis был недоступен.
     transaction.on_commit(send_after_commit, robust=True)
 
 

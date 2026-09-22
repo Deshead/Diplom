@@ -148,6 +148,48 @@ class OrdersTests(APITestCase):
             self.assertEqual(OrderItem.objects.count(), 0)
             self.assertEqual(Order.objects.count(), 0)
 
+    def test_basket_rejects_non_object_json(self):
+        for method in ("POST", "PUT", "DELETE"):
+            for data in ([], 10, "items", None):
+                with self.subTest(method=method, data=data):
+                    response = self.client.generic(
+                        method,
+                        "/api/v1/basket",
+                        data=json.dumps(data),
+                        content_type="application/json",
+                    )
+                    self.assertEqual(response.status_code, 400)
+        self.assertFalse(Order.objects.exists())
+
+    def test_contacts_reject_non_object_json(self):
+        for method in ("PUT", "DELETE"):
+            for data in ([], 10, "items", None):
+                with self.subTest(method=method, data=data):
+                    response = self.client.generic(
+                        method,
+                        "/api/v1/user/contact",
+                        data=json.dumps(data),
+                        content_type="application/json",
+                    )
+                    self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.buyer.contacts.count(), 1)
+
+    def test_status_rejects_non_object_json(self):
+        order = self.place_order()
+        self.client.force_authenticate(self.staff)
+        for method in ("PATCH", "POST"):
+            for data in ([], 10, "state", None):
+                with self.subTest(method=method, data=data):
+                    response = self.client.generic(
+                        method,
+                        f"/api/v1/admin/orders/{order.pk}/status",
+                        data=json.dumps(data),
+                        content_type="application/json",
+                    )
+                    self.assertEqual(response.status_code, 400)
+        order.refresh_from_db()
+        self.assertEqual(order.state, "new")
+
     def test_checkout_two_suppliers_sends_invoice_and_confirmation(self):
         order = self.place_order(mixed=True)
         self.assertEqual(order.state, "new")

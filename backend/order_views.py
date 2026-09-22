@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 
 from django.db import transaction
 from django.db.models import Prefetch
@@ -35,6 +36,9 @@ class IsSupplier(BasePermission):
 
 
 def read_items(data, serializer_class):
+    # Список тоже может быть JSON, но здесь нужны поля запроса.
+    if not isinstance(data, Mapping):
+        raise ValidationError("Передайте поля запроса в виде объекта.")
     items = data.get("items")
     if isinstance(items, str):
         # В form-data список товаров приходит JSON-строкой.
@@ -57,6 +61,8 @@ def read_items(data, serializer_class):
 
 
 def read_ids(data):
+    if not isinstance(data, Mapping):
+        raise ValidationError("Передайте поля запроса в виде объекта.")
     values = data.get("items")
     if isinstance(values, str):
         values = values.split(",")
@@ -175,6 +181,8 @@ class ContactView(APIView):
 
     @transaction.atomic
     def put(self, request):
+        if not isinstance(request.data, Mapping):
+            raise ValidationError("Передайте поля запроса в виде объекта.")
         User.objects.select_for_update().get(pk=request.user.pk)
         contact_id = serializers.IntegerField(min_value=1).run_validation(request.data.get("id"))
         contact = get_object_or_404(
@@ -229,6 +237,8 @@ class OrderStatusView(APIView):
     permission_classes = [IsAdminUser]
 
     def patch(self, request, pk):
+        if not isinstance(request.data, Mapping):
+            raise ValidationError("Передайте поля запроса в виде объекта.")
         order = get_object_or_404(Order.objects.exclude(state="basket"), pk=pk)
         state = serializers.ChoiceField(
             choices=["new", "confirmed", "assembled", "sent", "delivered", "canceled"]
