@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -25,17 +27,24 @@ class IsSupplier(permissions.BasePermission):
 class CategoryView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = CategorySerializer
-    queryset = Category.objects.filter(shops__state=True).distinct().order_by("id")
+    queryset = (
+        Category.objects.filter(shops__state=True, shops__user__is_active=True)
+        .distinct()
+        .order_by("id")
+    )
 
 
 class ShopView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = ShopSerializer
-    queryset = Shop.objects.filter(state=True).order_by("id")
+    queryset = Shop.objects.filter(state=True, user__is_active=True).order_by("id")
 
 
 def available_offers():
-    offers = ProductInfo.objects.filter(is_active=True, shop__state=True)
+    # У отключённого поставщика всё равно не получится оформить заказ.
+    offers = ProductInfo.objects.filter(
+        is_active=True, shop__state=True, shop__user__is_active=True
+    )
     offers = offers.select_related("shop", "product__category")
     offers = offers.prefetch_related("product_parameters__parameter")
     return offers.order_by("id")
@@ -100,6 +109,8 @@ class PartnerUpdate(APIView):
     permission_classes = [IsSupplier]
 
     def post(self, request):
+        if not isinstance(request.data, Mapping):
+            raise serializers.ValidationError("Нужен объект с полями file или url")
         uploaded = request.FILES.get("file")
         url = request.data.get("url")
         if uploaded and url:
@@ -128,6 +139,8 @@ class PartnerState(APIView):
         return Response(ShopSerializer(shop).data)
 
     def post(self, request):
+        if not isinstance(request.data, Mapping):
+            raise serializers.ValidationError("Нужен объект с полем state")
         state = serializers.BooleanField().run_validation(request.data.get("state"))
         shop = get_object_or_404(Shop, user=request.user)
         shop.state = state

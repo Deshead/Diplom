@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from decimal import Decimal
 from io import StringIO
@@ -258,6 +259,40 @@ class CatalogAPITests(APITestCase):
         self.client.post("/api/v1/partner/state", {"state": True}, format="json")
         self.assertEqual(len(self.client.get("/api/v1/products").data), 2)
 
+    def test_inactive_supplier_is_hidden_from_public_catalog(self):
+        self.upload()
+        hidden_offer = ProductInfo.objects.get(shop__user=self.supplier, external_id=11)
+        other = User.objects.create_user("other@example.com", type="shop", is_active=True)
+        data = sample_catalog()
+        data["categories"] = [{"id": 225, "name": "Планшеты"}]
+        for item in data["goods"]:
+            item["category"] = 225
+        import_catalog(as_yaml(data), other)
+        visible_offers = list(
+            ProductInfo.objects.filter(shop__user=other).order_by("id").values_list("id", flat=True)
+        )
+
+        self.supplier.is_active = False
+        self.supplier.save(update_fields=["is_active"])
+        self.client.force_authenticate(None)
+        for path, expected_ids in (
+            ("/api/v1/products", visible_offers),
+            ("/api/v1/shops", [other.shop.pk]),
+            ("/api/v1/categories", [225]),
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([item["id"] for item in response.data], expected_ids)
+        with self.subTest(path="product_detail"):
+            response = self.client.get(f"/api/v1/products/{hidden_offer.pk}")
+            self.assertEqual(response.status_code, 404)
+
+        self.supplier.is_active = True
+        self.supplier.save(update_fields=["is_active"])
+        self.assertEqual(self.client.get(f"/api/v1/products/{hidden_offer.pk}").status_code, 200)
+        self.assertEqual(len(self.client.get("/api/v1/products").data), 4)
+
     def test_export_job_returns_reusable_yaml(self):
         self.upload()
         response = self.client.get("/api/v1/partner/export")
@@ -300,6 +335,19 @@ class CatalogAPITests(APITestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(CatalogJob.objects.exists())
+
+    def test_partner_requests_require_json_object(self):
+        self.upload()
+        jobs_before = CatalogJob.objects.count()
+        for path in ("/api/v1/partner/update", "/api/v1/partner/state"):
+            for data in ([], 10, "catalog", None):
+                with self.subTest(path=path, data=data):
+                    response = self.client.post(
+                        path, json.dumps(data), content_type="application/json"
+                    )
+                    self.assertEqual(response.status_code, 400)
+        self.assertEqual(CatalogJob.objects.count(), jobs_before)
+        self.assertTrue(Shop.objects.get(user=self.supplier).state)
 
 
 class CatalogDownloadTests(SimpleTestCase):
