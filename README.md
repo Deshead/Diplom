@@ -115,6 +115,8 @@ docker compose down
 
 Результаты: [docs/VERIFICATION.md](docs/VERIFICATION.md). Требования задания: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
+GitHub Actions также собирает Docker-образ и запускает весь Compose на свежей базе. Проверка `scripts/docker_smoke_test.py` обращается к API и Mailpit, создает тестового покупателя и заказ; она рассчитана на отдельный тестовый запуск с пустой почтой, а не на рабочую базу. [Результаты CI](https://github.com/Deshead/Diplom/actions/workflows/tests.yml).
+
 ## Файлы
 
 ```text
