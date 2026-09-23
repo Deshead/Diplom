@@ -49,6 +49,6 @@ class Command(BaseCommand):
             ("shop2.yaml", "supplier2@example.com"),
         ]:
             content = (Path(settings.BASE_DIR) / "data" / filename).read_text(encoding="utf-8")
-            result = import_catalog(content, users[email])
+            result = import_catalog(content, users[email], filename=filename)
             self.stdout.write(f"{filename}: {result}")
         self.stdout.write(self.style.SUCCESS("Демо готово. Повторный запуск обновляет прайсы."))

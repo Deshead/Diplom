@@ -412,7 +412,9 @@ class OrdersTests(APITestCase):
                 )
             self.assertEqual(response.status_code, 302)
             job = CatalogJob.objects.get()
-            task.assert_called_once_with(job.pk, content="shop: Test\ncategories: []\ngoods: []\n")
+            task.assert_called_once_with(
+                job.pk, content="shop: Test\ncategories: []\ngoods: []\n", filename="price.yaml"
+            )
         self.assertEqual(job.user_id, self.supplier.pk)
         request = response.wsgi_request
         self.assertFalse(admin.site._registry[Order].has_add_permission(request))

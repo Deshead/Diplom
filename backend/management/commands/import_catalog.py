@@ -19,7 +19,9 @@ class Command(BaseCommand):
         except User.DoesNotExist:
             raise CommandError("Поставщик с таким email не найден") from None
         try:
-            result = import_catalog(options["file"].read_bytes(), user)
+            result = import_catalog(
+                options["file"].read_bytes(), user, filename=options["file"].name
+            )
         except (OSError, CatalogError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(

@@ -98,7 +98,7 @@ class CatalogImportForm(forms.Form):
 
 @admin.register(Shop)
 class ShopAdmin(admin.ModelAdmin):
-    list_display = ("name", "user", "state", "url")
+    list_display = ("name", "user", "state", "url", "filename")
     list_filter = ("state",)
     search_fields = ("name", "user__email")
     change_list_template = "admin/backend/shop/change_list.html"
@@ -124,7 +124,9 @@ class ShopAdmin(admin.ModelAdmin):
 
             def queue_import():
                 try:
-                    do_import.delay(job.pk, content=form.content)
+                    do_import.delay(
+                        job.pk, content=form.content, filename=form.cleaned_data["file"].name
+                    )
                 except Exception:
                     logger.exception("Не удалось запустить импорт, задание %s", job.pk)
                     job.status = "error"

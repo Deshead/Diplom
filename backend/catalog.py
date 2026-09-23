@@ -6,6 +6,7 @@ import socket
 import ssl
 import time
 from decimal import Decimal, InvalidOperation
+from pathlib import PureWindowsPath
 from urllib.parse import urljoin, urlsplit
 
 import yaml
@@ -139,11 +140,16 @@ def read_catalog(content):
     return {"shop": shop_name, "categories": category_map, "goods": clean_goods}
 
 
-def import_catalog(content, user, url=""):
+def import_catalog(content, user, url="", filename=""):
     if user.type != "shop":
         raise CatalogError("Импорт доступен только поставщику")
     if len(url) > 200:
         raise CatalogError("Адрес прайса должен быть не длиннее 200 символов")
+    if url and filename:
+        raise CatalogError("Укажите один источник прайса: адрес или файл")
+    if filename:
+        # Полный путь с компьютера поставщика нам не нужен.
+        filename = validate_text(PureWindowsPath(filename).name, "filename", 255)
     data = read_catalog(content)
     with transaction.atomic():
         # Два прайса одного поставщика загружаем по очереди.
@@ -155,6 +161,10 @@ def import_catalog(content, user, url=""):
         shop.name = data["shop"]
         if url:
             shop.url = url
+            shop.filename = ""
+        elif filename:
+            shop.filename = filename
+            shop.url = ""
         shop.save()
         categories = []
         for category_id, name in data["categories"].items():

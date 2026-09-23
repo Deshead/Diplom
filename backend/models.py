@@ -62,6 +62,7 @@ class User(AbstractUser):
 class Shop(models.Model):
     name = models.CharField("Название", max_length=100)
     url = models.URLField("Адрес прайса", blank=True)
+    filename = models.CharField("Файл прайса", max_length=255, blank=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="shop")
     state = models.BooleanField("Принимает заказы", default=True)
 

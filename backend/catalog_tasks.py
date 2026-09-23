@@ -16,12 +16,12 @@ def _finish_error(job, error):
 
 
 @shared_task
-def do_import(job_id, content=None, url=None):
+def do_import(job_id, content=None, url=None, filename=""):
     job = CatalogJob.objects.select_related("user").get(pk=job_id, kind="import")
     try:
         if url:
             content = download_catalog(url)
-        job.result = import_catalog(content, job.user, url=url or "")
+        job.result = import_catalog(content, job.user, url=url or "", filename=filename)
     except CatalogError as exc:
         _finish_error(job, exc)
         return

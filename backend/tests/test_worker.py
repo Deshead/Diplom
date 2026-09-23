@@ -6,7 +6,7 @@ from django.core import mail
 from django.test import TransactionTestCase, override_settings
 
 from backend.catalog_tasks import do_export, do_import
-from backend.models import CatalogJob, ProductInfo, User
+from backend.models import CatalogJob, ProductInfo, Shop, User
 from backend.tasks import send_email
 
 
@@ -50,12 +50,15 @@ goods:
         self.addCleanup(app.close)
         with start_worker(app, pool="solo", perform_ping_check=False, shutdown_timeout=15):
             job = CatalogJob.objects.create(user=supplier, kind="import")
-            app.send_task(do_import.name, args=[job.pk], kwargs={"content": content}).get(
-                timeout=15
-            )
+            app.send_task(
+                do_import.name,
+                args=[job.pk],
+                kwargs={"content": content, "filename": "worker.yaml"},
+            ).get(timeout=15)
             job.refresh_from_db()
             self.assertEqual(job.status, "done", job.error)
             self.assertEqual(ProductInfo.objects.get().quantity, 3)
+            self.assertEqual(Shop.objects.get(user=supplier).filename, "worker.yaml")
             export = CatalogJob.objects.create(user=supplier, kind="export")
             app.send_task(do_export.name, args=[export.pk]).get(timeout=15)
             export.refresh_from_db()

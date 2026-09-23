@@ -118,7 +118,9 @@ class PartnerUpdate(APIView):
         if not uploaded and not url:
             raise serializers.ValidationError("Укажите ровно один источник: file или url")
         content = None
+        filename = ""
         if uploaded:
+            filename = uploaded.name
             if uploaded.size > settings.CATALOG_MAX_BYTES:
                 raise serializers.ValidationError({"file": "Файл слишком большой"})
             try:
@@ -128,7 +130,7 @@ class PartnerUpdate(APIView):
         else:
             url = serializers.URLField(max_length=200).run_validation(url)
         job = CatalogJob.objects.create(user=request.user, kind="import")
-        return start_catalog_task(job, do_import, content=content, url=url)
+        return start_catalog_task(job, do_import, content=content, url=url, filename=filename)
 
 
 class PartnerState(APIView):

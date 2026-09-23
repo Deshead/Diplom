@@ -67,6 +67,28 @@ class CatalogServiceTests(TestCase):
         self.assertEqual(Shop.objects.count(), 1)
         self.assertEqual(Category.objects.count(), 4)
 
+    def test_source_changes_only_after_successful_import(self):
+        content = as_yaml(sample_catalog())
+        url = "https://example.com/catalog.yaml"
+        import_catalog(content, self.supplier, url=url)
+        shop = Shop.objects.get(user=self.supplier)
+        self.assertEqual((shop.url, shop.filename), (url, ""))
+
+        for filename in ("/home/supplier/prices.yaml", r"C:\prices\prices.yaml"):
+            with self.subTest(filename=filename):
+                import_catalog(content, self.supplier, filename=filename)
+                shop.refresh_from_db()
+                self.assertEqual((shop.url, shop.filename), ("", "prices.yaml"))
+
+        with self.assertRaises(CatalogError):
+            import_catalog("shop: [broken", self.supplier, url=url)
+        shop.refresh_from_db()
+        self.assertEqual((shop.url, shop.filename), ("", "prices.yaml"))
+
+        import_catalog(content, self.supplier, url=url)
+        shop.refresh_from_db()
+        self.assertEqual((shop.url, shop.filename), (url, ""))
+
     def test_changed_offer_and_removed_offer_preserve_order_history(self):
         data = sample_catalog()
         import_catalog(as_yaml(data), self.supplier)
@@ -182,7 +204,16 @@ class CatalogServiceTests(TestCase):
             stdout=output,
         )
         self.assertEqual(ProductInfo.objects.filter(shop__user=self.supplier).count(), 14)
+        self.assertEqual(Shop.objects.get(user=self.supplier).filename, "shop1.yaml")
         self.assertIn("14", output.getvalue())
+
+    @override_settings(DEBUG=True)
+    def test_demo_shops_keep_source_filenames(self):
+        call_command("seed_demo", stdout=StringIO())
+        for number in (1, 2):
+            shop = Shop.objects.get(user__email=f"supplier{number}@example.com")
+            self.assertEqual(shop.filename, f"shop{number}.yaml")
+            self.assertEqual(shop.url, "")
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
@@ -208,6 +239,7 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["status"], "done")
         self.assertEqual(response.data["result"]["products"], 2)
+        self.assertEqual(Shop.objects.get(user=self.supplier).filename, "shop.yaml")
 
     def test_invalid_yaml_creates_failed_job_without_catalog_changes(self):
         response = self.upload("shop: [broken")
@@ -311,11 +343,13 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(response.status_code, 202)
         download.assert_not_called()
         job_id = response.data["job_id"]
-        delay.assert_called_once_with(job_id, content=None, url=url)
+        delay.assert_called_once_with(job_id, content=None, url=url, filename="")
         self.assertEqual(CatalogJob.objects.get(pk=job_id).status, "pending")
         download.return_value = as_yaml(sample_catalog()).encode()
         do_import(job_id, url=url)
         self.assertEqual(CatalogJob.objects.get(pk=job_id).status, "done")
+        shop = Shop.objects.get(user=self.supplier)
+        self.assertEqual((shop.url, shop.filename), (url, ""))
         download.assert_called_once_with(url)
 
     @override_settings(CATALOG_MAX_BYTES=10)
