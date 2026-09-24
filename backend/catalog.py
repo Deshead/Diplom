@@ -159,13 +159,17 @@ def import_catalog(content, user, url="", filename=""):
                 raise CatalogError(f"Категория {category.pk} уже существует с другим названием")
         shop, _ = Shop.objects.get_or_create(user=user, defaults={"name": data["shop"]})
         shop.name = data["shop"]
+        changed_fields = ["name"]
         if url:
             shop.url = url
             shop.filename = ""
+            changed_fields.extend(["url", "filename"])
         elif filename:
             shop.filename = filename
             shop.url = ""
-        shop.save()
+            changed_fields.extend(["url", "filename"])
+        # Поставщик мог выключить магазин, пока загружался прайс.
+        shop.save(update_fields=changed_fields)
         categories = []
         for category_id, name in data["categories"].items():
             category, _ = Category.objects.get_or_create(pk=category_id, defaults={"name": name})

@@ -89,6 +89,28 @@ class CatalogServiceTests(TestCase):
         shop.refresh_from_db()
         self.assertEqual((shop.url, shop.filename), (url, ""))
 
+    def test_import_does_not_undo_shop_disabling_during_import(self):
+        content = as_yaml(sample_catalog())
+        import_catalog(content, self.supplier)
+        save_shop = Shop.save
+
+        def disable_shop_before_save(shop, *args, **kwargs):
+            # Второй запрос отключил прием заказов после чтения магазина.
+            Shop.objects.filter(pk=shop.pk).update(state=False)
+            return save_shop(shop, *args, **kwargs)
+
+        updated = sample_catalog()
+        updated["shop"] = "Новое имя магазина"
+        updated["goods"][0]["price"] = "120.75"
+        with patch.object(Shop, "save", disable_shop_before_save):
+            import_catalog(as_yaml(updated), self.supplier, filename="updated.yaml")
+
+        shop = Shop.objects.get(user=self.supplier)
+        self.assertFalse(shop.state)
+        self.assertEqual(shop.name, "Новое имя магазина")
+        self.assertEqual(shop.filename, "updated.yaml")
+        self.assertEqual(ProductInfo.objects.get(external_id=11).price, Decimal("120.75"))
+
     def test_changed_offer_and_removed_offer_preserve_order_history(self):
         data = sample_catalog()
         import_catalog(as_yaml(data), self.supplier)
