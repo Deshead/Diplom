@@ -4,10 +4,12 @@ from unittest.mock import patch
 from django.core import mail
 from django.core.cache import cache
 from django.test import override_settings
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
+from backend.admin import ChangePasswordForm
 from backend.models import EmailToken, User
 
 
@@ -217,6 +219,57 @@ class AuthTests(APITestCase):
         user.refresh_from_db()
         self.assertEqual(user.company, "Новая компания")
         self.assertTrue(user.check_password("Changed-Study-2026!"))
+
+    def test_admin_password_change_revokes_login_and_pending_reset(self):
+        user = User.objects.create_user(**self.data, is_active=True)
+        staff = User.objects.create_superuser("admin@example.com", "Admin-Orders-2026!")
+        api_token = Token.objects.create(user=user)
+        reset_token = EmailToken.objects.create(user=user, purpose="reset")
+        self.client.force_login(staff)
+
+        response = self.client.post(
+            reverse("admin:auth_user_password_change", args=[user.pk]),
+            {
+                "password1": "Changed-Admin-2026!",
+                "password2": "Changed-Admin-2026!",
+                "usable_password": "true",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Changed-Admin-2026!"))
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION="Token " + api_token.key)
+        self.assertEqual(self.client.get("/api/v1/user/details").status_code, 401)
+        self.client.credentials()
+        response = self.client.post(
+            "/api/v1/user/password_reset/confirm",
+            {"token": reset_token.key, "password": "Old-Link-Password-2026!"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(EmailToken.objects.filter(pk=reset_token.pk).exists())
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Changed-Admin-2026!"))
+
+    def test_admin_password_change_keeps_recent_profile_changes(self):
+        user = User.objects.create_user(**self.data, is_active=True)
+        form = ChangePasswordForm(
+            user,
+            {
+                "password1": "Changed-Admin-2026!",
+                "password2": "Changed-Admin-2026!",
+                "usable_password": "true",
+            },
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        # За это время другой запрос поправил профиль.
+        User.objects.filter(pk=user.pk).update(company="Новая компания", phone="+79991234567")
+        saved_user = form.save()
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Changed-Admin-2026!"))
+        self.assertEqual(user.company, "Новая компания")
+        self.assertEqual(user.phone, "+79991234567")
+        self.assertEqual(saved_user.company, user.company)
 
     def test_confirmation_can_be_retried_after_email_failure(self):
         with patch("backend.auth_views.send_email.delay", side_effect=OSError("queue down")):

@@ -4,17 +4,19 @@ from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.contrib.auth.forms import UserChangeForm, UserCreationForm
+from django.contrib.auth.forms import AdminPasswordChangeForm, UserChangeForm, UserCreationForm
 from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import ValidationError
 
 from .models import (
     CatalogJob,
     Category,
     Contact,
+    EmailToken,
     Order,
     OrderItem,
     Parameter,
@@ -50,10 +52,25 @@ class ChangeUserForm(EmailFormMixin, UserChangeForm):
         fields = "__all__"
 
 
+class ChangePasswordForm(AdminPasswordChangeForm):
+    @transaction.atomic
+    def save(self, commit=True):
+        if commit:
+            self.user = User.objects.select_for_update().get(pk=self.user.pk)
+        user = super().save(commit=False)
+        if commit:
+            user.save(update_fields=["password"])
+            # Старое письмо и вход по токену больше не должны работать.
+            EmailToken.objects.filter(user=user, purpose="reset").delete()
+            Token.objects.filter(user=user).delete()
+        return user
+
+
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
     form = ChangeUserForm
     add_form = CreateUserForm
+    change_password_form = ChangePasswordForm
     ordering = ("email",)
     list_display = ("email", "first_name", "last_name", "type", "is_active", "is_staff")
     list_filter = ("type", "is_active", "is_staff")
