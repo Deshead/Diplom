@@ -97,6 +97,17 @@ class UserAdmin(DjangoUserAdmin):
         ),
     )
 
+    def save_model(self, request, obj, form, change):
+        if not change:
+            return super().save_model(request, obj, form, change)
+        # Пока правили профиль, пользователь мог сменить пароль в другой вкладке.
+        fields = [
+            field.name
+            for field in obj._meta.concrete_fields
+            if field.name in form.changed_data and field.name != "password"
+        ]
+        obj.save(update_fields=fields)
+
 
 class CatalogImportForm(forms.Form):
     supplier = forms.ModelChoiceField(label="Поставщик", queryset=User.objects.filter(type="shop"))

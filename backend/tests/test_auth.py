@@ -1,15 +1,18 @@
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib import admin
+from django.contrib.auth.models import Group, Permission
 from django.core import mail
 from django.core.cache import cache
+from django.forms.models import model_to_dict
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from backend.admin import ChangePasswordForm
+from backend.admin import ChangePasswordForm, ChangeUserForm
 from backend.models import EmailToken, User
 
 
@@ -270,6 +273,63 @@ class AuthTests(APITestCase):
         self.assertEqual(user.company, "Новая компания")
         self.assertEqual(user.phone, "+79991234567")
         self.assertEqual(saved_user.company, user.company)
+
+    def test_admin_profile_edit_does_not_restore_old_password_or_phone(self):
+        user = User.objects.create_user(**self.data, is_active=True)
+        data = model_to_dict(user)
+        data["company"] = "Новая компания"
+        form = ChangeUserForm(data=data, instance=user)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        # Запрос на смену пароля завершился раньше сохранения формы админки.
+        current_user = User.objects.get(pk=user.pk)
+        current_user.set_password("Changed-Study-2026!")
+        current_user.phone = "+79991234567"
+        current_user.save(update_fields=["password", "phone"])
+
+        model_admin = admin.site._registry[User]
+        changed_user = model_admin.save_form(None, form, change=True)
+        model_admin.save_model(None, changed_user, form, change=True)
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Changed-Study-2026!"))
+        self.assertFalse(user.check_password(self.data["password"]))
+        self.assertEqual(user.company, "Новая компания")
+        self.assertEqual(user.phone, "+79991234567")
+
+    def test_admin_profile_edit_saves_groups_and_permissions(self):
+        user = User.objects.create_user(
+            **self.data, is_active=True, date_joined=timezone.now().replace(microsecond=0)
+        )
+        staff = User.objects.create_superuser("admin@example.com", "Admin-Orders-2026!")
+        group = Group.objects.create(name="Сотрудники склада")
+        permission = Permission.objects.get(
+            content_type__app_label="backend", codename="view_order"
+        )
+        self.client.force_login(staff)
+        local_date_joined = timezone.localtime(user.date_joined)
+
+        response = self.client.post(
+            reverse("admin:backend_user_change", args=[user.pk]),
+            {
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "type": user.type,
+                "is_active": "on",
+                "groups": [group.pk],
+                "user_permissions": [permission.pk],
+                "date_joined_0": local_date_joined.strftime("%Y-%m-%d"),
+                "date_joined_1": local_date_joined.strftime("%H:%M:%S"),
+                "_save": "Сохранить",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        user.refresh_from_db()
+        self.assertEqual(list(user.groups.all()), [group])
+        self.assertEqual(list(user.user_permissions.all()), [permission])
+        self.assertTrue(user.check_password(self.data["password"]))
 
     def test_confirmation_can_be_retried_after_email_failure(self):
         with patch("backend.auth_views.send_email.delay", side_effect=OSError("queue down")):
