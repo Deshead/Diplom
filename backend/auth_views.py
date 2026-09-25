@@ -158,7 +158,7 @@ class ConfirmAccount(PublicAuthView):
         data = serializer.validated_data
         with transaction.atomic():
             valid_from = timezone.now() - timedelta(hours=24)
-            tokens = EmailToken.objects.select_for_update().filter(
+            tokens = EmailToken.objects.filter(
                 key=data["token"],
                 purpose="register",
                 user__email__iexact=data["email"],
@@ -167,7 +167,12 @@ class ConfirmAccount(PublicAuthView):
             token = tokens.first()
             if not token:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
-            User.objects.filter(pk=token.user_id).update(is_active=True)
+            # Повторная отправка письма тоже сначала блокирует пользователя.
+            user = User.objects.select_for_update().filter(pk=token.user_id).first()
+            if not user or not tokens.select_for_update().exists():
+                raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
+            user.is_active = True
+            user.save(update_fields=["is_active"])
             # Код можно использовать только один раз.
             token.delete()
         return Response({"Status": True})
