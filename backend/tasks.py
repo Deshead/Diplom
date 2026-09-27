@@ -2,7 +2,7 @@ from celery import shared_task
 from django.conf import settings
 from django.core.mail import send_mail
 
-# Импорт нужен, чтобы Celery worker нашел задачи каталога.
+# Без этого импорта worker не увидит задачи каталога.
 from backend.catalog_tasks import do_export, do_import  # noqa: F401
 
 

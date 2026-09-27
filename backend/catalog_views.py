@@ -41,7 +41,7 @@ class ShopView(generics.ListAPIView):
 
 
 def available_offers():
-    # У отключённого поставщика всё равно не получится оформить заказ.
+    # Скрываем товары, если магазин выключен или поставщик заблокирован.
     offers = ProductInfo.objects.filter(
         is_active=True, shop__state=True, shop__user__is_active=True
     )

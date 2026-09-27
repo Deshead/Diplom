@@ -178,7 +178,7 @@ def import_catalog(content, user, url="", filename=""):
             categories.append(category)
         shop.categories.set(categories)
 
-        # Блокируем по id, как при оформлении заказа.
+        # Блокируем товары по id, в том же порядке, что и при оформлении заказа.
         list(shop.product_infos.select_for_update().order_by("pk"))
         imported_ids = []
         for item in data["goods"]:
@@ -293,7 +293,7 @@ def download_catalog(url):
         else:
             connection = http.client.HTTPConnection(parsed.hostname, port=port, timeout=10)
         try:
-            # Используем проверенный IP без повторного запроса DNS.
+            # IP уже проверили. Новый запрос DNS может вернуть другой адрес.
             connection.sock = socket.create_connection((address, port), timeout=10)
             if parsed.scheme == "https":
                 connection.sock = ssl.create_default_context().wrap_socket(

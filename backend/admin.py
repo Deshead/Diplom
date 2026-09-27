@@ -60,7 +60,7 @@ class ChangePasswordForm(AdminPasswordChangeForm):
         user = super().save(commit=False)
         if commit:
             user.save(update_fields=["password"])
-            # Старое письмо и вход по токену больше не должны работать.
+            # После смены пароля старые коды и токен входа уже не подходят.
             EmailToken.objects.filter(user=user, purpose="reset").delete()
             Token.objects.filter(user=user).delete()
         return user
@@ -100,7 +100,7 @@ class UserAdmin(DjangoUserAdmin):
     def save_model(self, request, obj, form, change):
         if not change:
             return super().save_model(request, obj, form, change)
-        # Пока правили профиль, пользователь мог сменить пароль в другой вкладке.
+        # Пароль за это время могли поменять другим запросом.
         fields = [
             field.name
             for field in obj._meta.concrete_fields
@@ -172,7 +172,7 @@ class ShopAdmin(admin.ModelAdmin):
                         messages.SUCCESS,
                     )
 
-            # Worker получает задание после его сохранения в БД.
+            # Сначала сохраняем задание в базу, потом запускаем worker.
             with transaction.atomic():
                 job = CatalogJob.objects.create(user=form.cleaned_data["supplier"], kind="import")
                 transaction.on_commit(queue_import, robust=True)
@@ -231,14 +231,14 @@ class OrderAdmin(ReadOnlyAdmin):
     readonly_fields = ("id", "user", "dt", "contact", "contact_snapshot", "total_sum")
 
     def save_model(self, request, obj, form, change):
-        # Правила смены статуса одинаковы для админки и API.
+        # Меняем статус так же, как через API.
         change_order_status(obj, obj.state)
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         try:
             return super().changeform_view(request, object_id, form_url, extra_context)
         except ValidationError as exc:
-            # Между открытием формы и сохранением другой администратор мог сменить статус.
+            # Пока форма была открыта, статус уже мог поменяться.
             self.message_user(request, str(exc.detail), messages.ERROR)
             return HttpResponseRedirect(request.path)
 
@@ -321,7 +321,7 @@ class CategoryAdmin(admin.ModelAdmin):
     search_fields = ("name",)
 
     def has_add_permission(self, request):
-        # ID категорий приходят из прайса, поэтому вручную категории не создаём.
+        # Категории добавляем из прайса, вместе с их ID.
         return False
 
 

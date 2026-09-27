@@ -161,7 +161,7 @@ class Order(models.Model):
     dt = models.DateTimeField(auto_now_add=True)
     state = models.CharField(max_length=15, choices=STATE_CHOICES, default="basket")
     contact = models.ForeignKey(Contact, null=True, blank=True, on_delete=models.SET_NULL)
-    # Адрес на момент заказа. Изменения в профиле на него не влияют.
+    # Храним копию адреса: покупатель может потом изменить или удалить контакт.
     contact_snapshot = models.JSONField(default=dict, blank=True)
 
     class Meta:

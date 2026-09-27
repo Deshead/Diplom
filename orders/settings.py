@@ -102,7 +102,7 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "orders@example.com")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
-# На Windows для знакомства с проектом задачи можно выполнять без Redis.
+# Для локального запуска можно выполнять задачи сразу, без Redis.
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "true").lower() == "true"
 CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

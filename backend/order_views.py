@@ -36,12 +36,12 @@ class IsSupplier(BasePermission):
 
 
 def read_items(data, serializer_class):
-    # Список тоже может быть JSON, но здесь нужны поля запроса.
+    # Ждем объект с полем items.
     if not isinstance(data, Mapping):
         raise ValidationError("Передайте поля запроса в виде объекта.")
     items = data.get("items")
     if isinstance(items, str):
-        # В form-data список товаров приходит JSON-строкой.
+        # Из формы items приходит строкой, ее нужно разобрать.
         try:
             items = json.loads(items)
         except (ValueError, TypeError):
@@ -98,7 +98,7 @@ class BasketView(APIView):
             if offer is None:
                 raise ValidationError({"product_info": "Товар не найден."})
             item = order.ordered_items.filter(product_info=offer).first()
-            # При повторном добавлении увеличиваем количество товара в корзине.
+            # Если товар уже в корзине, прибавляем количество.
             quantity = data["quantity"]
             if item is not None:
                 quantity += item.quantity
@@ -255,7 +255,7 @@ class PartnerOrders(APIView):
     permission_classes = [IsAuthenticated, IsSupplier]
 
     def get(self, request):
-        # Поставщик видит только свои товары и их сумму.
+        # Показываем поставщику только его часть заказа.
         items = OrderItem.objects.filter(product_info__shop__user=request.user)
         orders = Order.objects.filter(ordered_items__product_info__shop__user=request.user)
         orders = orders.exclude(state="basket").distinct()

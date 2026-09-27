@@ -88,7 +88,7 @@ class AccountSerializer(serializers.ModelSerializer):
         instance.phone = validated_data.get("phone", instance.phone)
         if password is not None:
             instance.set_password(password)
-            # Код из старого письма после смены пароля уже не нужен.
+            # Старым кодом из письма уже нельзя сбросить пароль.
             EmailToken.objects.filter(user=instance, purpose="reset").delete()
             # После смены пароля нужно войти заново.
             Token.objects.filter(user=instance).delete()
@@ -167,7 +167,7 @@ class ConfirmAccount(PublicAuthView):
             token = tokens.first()
             if not token:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
-            # Повторная отправка письма тоже сначала блокирует пользователя.
+            # Сначала пользователь, потом код: при повторной отправке порядок тот же.
             user = User.objects.select_for_update().filter(pk=token.user_id).first()
             if not user or not tokens.select_for_update().exists():
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
@@ -276,7 +276,7 @@ class PasswordResetConfirm(PublicAuthView):
             token = tokens.first()
             if not token:
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})
-            # Такой же порядок блокировок, как при запросе кода и изменении профиля.
+            # Сначала блокируем пользователя, потом код — как при запросе сброса.
             user = User.objects.select_for_update().filter(pk=token.user_id, is_active=True).first()
             if not user or not tokens.select_for_update().exists():
                 raise serializers.ValidationError({"token": "Токен неверен или просрочен"})

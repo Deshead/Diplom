@@ -29,7 +29,7 @@ def queue_email(subject, body, recipients):
     def send_after_commit():
         send_email.delay(subject, body, recipients)
 
-    # Письмо отправляется только после успешного сохранения заказа.
+    # Сначала сохраняем заказ, потом отправляем письмо.
     # TODO: сохранять письма на повторную отправку, если Redis был недоступен.
     transaction.on_commit(send_after_commit, robust=True)
 
@@ -63,7 +63,7 @@ def invoice_text(order):
 
 @transaction.atomic
 def checkout(user, basket_id, contact_id):
-    # Один порядок блокировок используется и в корзине, и при смене статуса.
+    # Покупателя блокируем раньше заказа, как при смене статуса.
     User.objects.select_for_update().get(pk=user.pk)
     order = get_object_or_404(
         Order.objects.select_for_update(), pk=basket_id, user=user, state="basket"
@@ -79,7 +79,7 @@ def checkout(user, basket_id, contact_id):
     offers = {}
     for offer in offers_query.order_by("pk"):
         offers[offer.pk] = offer
-    # При нехватке товара транзакция отменит все списания этого заказа.
+    # Если товара не хватит, транзакция вернёт и уже списанные остатки.
     for item in items:
         offer = offers[item.product_info_id]
         check_offer(offer, item.quantity)
@@ -105,7 +105,7 @@ def change_order_status(order, new_state):
     User.objects.select_for_update().get(pk=order.user_id)
     order = Order.objects.select_for_update().get(pk=order.pk)
     if new_state == order.state and order.state != "basket":
-        # Повторная отмена не должна повторно вернуть товар на склад.
+        # При повторной отмене остатки возвращать уже не нужно.
         return order
     allowed_states = TRANSITIONS.get(order.state, set())
     if new_state not in allowed_states:
