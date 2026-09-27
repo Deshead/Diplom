@@ -129,10 +129,12 @@ def run_scenario(session, base, email_folder, fetch_messages, timeout):
     def email_messages():
         if fetch_messages is not None:
             return fetch_messages()
-        return [
-            BytesParser(policy=policy.default).parsebytes(path.read_bytes())
-            for path in email_folder.glob("*")
-        ]
+        messages = []
+        for path in email_folder.glob("*"):
+            content = path.read_bytes()
+            message = BytesParser(policy=policy.default).parsebytes(content)
+            messages.append(message)
+        return messages
 
     def wait_email(subject):
         deadline = time.monotonic() + timeout

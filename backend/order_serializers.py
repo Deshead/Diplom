@@ -30,7 +30,8 @@ class ContactSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         user = self.context["request"].user
-        if not attrs.get("phone", user.phone):
+        phone = attrs.get("phone", user.phone)
+        if not phone:
             raise serializers.ValidationError({"phone": "Укажите телефон."})
         return attrs
 

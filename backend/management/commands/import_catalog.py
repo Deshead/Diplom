@@ -18,10 +18,10 @@ class Command(BaseCommand):
             user = User.objects.get(email=options["email"].lower(), type="shop")
         except User.DoesNotExist:
             raise CommandError("Поставщик с таким email не найден") from None
+        catalog_file = options["file"]
         try:
-            result = import_catalog(
-                options["file"].read_bytes(), user, filename=options["file"].name
-            )
+            content = catalog_file.read_bytes()
+            result = import_catalog(content, user, filename=catalog_file.name)
         except (OSError, CatalogError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(

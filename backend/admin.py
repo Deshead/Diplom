@@ -101,11 +101,12 @@ class UserAdmin(DjangoUserAdmin):
         if not change:
             return super().save_model(request, obj, form, change)
         # Пароль за это время могли поменять другим запросом.
-        fields = [
-            field.name
-            for field in obj._meta.concrete_fields
-            if field.name in form.changed_data and field.name != "password"
-        ]
+        fields = []
+        for field in obj._meta.concrete_fields:
+            if field.name == "password":
+                continue
+            if field.name in form.changed_data:
+                fields.append(field.name)
         obj.save(update_fields=fields)
 
 
