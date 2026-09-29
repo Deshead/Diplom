@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.authtoken.models import Token
@@ -138,9 +138,17 @@ class RegisterAccount(PublicAuthView):
     def post(self, request):
         serializer = RegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            user = User.objects.create_user(**serializer.validated_data)
-            send_confirmation(user)
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(**serializer.validated_data)
+                send_confirmation(user)
+        except IntegrityError as exc:
+            # Другой запрос мог занять email после проверки сериализатора.
+            if User.objects.filter(email=serializer.validated_data["email"]).exists():
+                raise serializers.ValidationError(
+                    {"email": "Этот email уже зарегистрирован"}
+                ) from exc
+            raise
         return Response(
             {"Status": True, "message": "Проверьте email для подтверждения"}, status=201
         )
