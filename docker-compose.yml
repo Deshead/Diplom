@@ -24,6 +24,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-orders}
       POSTGRES_USER: ${POSTGRES_USER:-orders}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orders_local_password}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale-provider=builtin --builtin-locale=C.UTF-8
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

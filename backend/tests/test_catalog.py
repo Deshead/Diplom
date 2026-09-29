@@ -301,6 +301,40 @@ class CatalogAPITests(APITestCase):
         self.assertEqual(self.client.get("/api/v1/products", {"shop_id": "bad"}).status_code, 400)
         self.assertEqual(len(self.client.get("/api/v1/categories").data), 1)
 
+    def test_search_matches_cyrillic_name_description_and_model_ignoring_case(self):
+        data = sample_catalog()
+        data["goods"][0].update(
+            name="Смартфон Ёж", description="Яркий экран", model="Модель-А"
+        )
+        self.upload(as_yaml(data))
+        self.client.force_authenticate(None)
+        for search in ("смартфон", "ёж", "ЯРКИЙ", "модель-а"):
+            with self.subTest(search=search):
+                response = self.client.get("/api/v1/products", {"search": search})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([item["external_id"] for item in response.data], [11])
+
+    def test_search_treats_pattern_characters_as_literal_substrings(self):
+        data = sample_catalog()
+        data["goods"][0]["name"] = r"Телефон A+ (2026) [5G]. 100%_готов \ путь"
+        self.upload(as_yaml(data))
+        self.client.force_authenticate(None)
+        for search, expected in (
+            ("A+", [11]),
+            ("(2026)", [11]),
+            ("[5g]", [11]),
+            (".", [11]),
+            ("100%_ГОТОВ", [11]),
+            ("\\", [11]),
+            ("[", [11]),
+            (".*", []),
+            ("phone/.", []),
+        ):
+            with self.subTest(search=search):
+                response = self.client.get("/api/v1/products", {"search": search})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([item["external_id"] for item in response.data], expected)
+
     def test_disabling_shop_hides_all_its_offers(self):
         self.upload()
         info = ProductInfo.objects.first()

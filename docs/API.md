@@ -56,7 +56,7 @@ Authorization: Token значение_токена
 | `GET /products` | Предложения магазинов |
 | `GET /products/<id>` | Одно предложение |
 
-Фильтры: `shop_id`, `category_id`, `search` по названию, описанию или модели. Пример: `/products?shop_id=1&category_id=224&search=iphone`.
+Фильтры: `shop_id`, `category_id`, `search` по названию, описанию или модели. Поиск не зависит от регистра, в том числе для русских букв. Символы вроде `+`, `[` и `.` ищутся как обычный текст. Пример: `/products?shop_id=1&category_id=224&search=iphone`.
 
 Поля предложения: `id`, `external_id`, `model`, `product`, `shop`, `quantity`, `price`, `price_rrc`, `product_parameters`. В `product` находятся название, описание и категория. У характеристик поля `parameter` и `value`. Цены передаются строками, например `"65000.00"`.
 

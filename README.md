@@ -72,6 +72,8 @@ docker compose exec web python manage.py seed_demo
 
 Запускаются Django, PostgreSQL, Redis, Celery и Mailpit. API доступен на порту `8000`, письма — на <http://127.0.0.1:8025>. Это учебный запуск с `runserver` и `DJANGO_DEBUG=true`. Миграции выполняются автоматически до запуска worker.
 
+Для поиска русских названий без учета регистра внешняя база PostgreSQL 17 должна использовать UTF-8 и локаль с поддержкой Unicode, например `C.UTF-8` с провайдером `builtin`. В Compose и CI это задано через `POSTGRES_INITDB_ARGS`. Параметры применяются только при создании нового кластера в пустом томе; существующая база от них не меняется.
+
 ```bash
 docker compose logs -f web worker
 docker compose exec web python manage.py check

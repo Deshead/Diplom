@@ -1,6 +1,8 @@
+import re
 from collections.abc import Mapping
 
 from django.conf import settings
+from django.db import connections
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, serializers
@@ -78,10 +80,15 @@ class ProductInfoView(generics.ListAPIView):
 
         search = self.request.query_params.get("search", "").strip()
         if search:
+            lookup = "icontains"
+            if connections[queryset.db].vendor == "sqlite":
+                # В SQLite обычный поиск не меняет регистр русских букв.
+                lookup = "iregex"
+                search = re.escape(search)
             queryset = queryset.filter(
-                Q(product__name__icontains=search)
-                | Q(product__description__icontains=search)
-                | Q(model__icontains=search)
+                Q(**{f"product__name__{lookup}": search})
+                | Q(**{f"product__description__{lookup}": search})
+                | Q(**{f"model__{lookup}": search})
             )
         return queryset
 
